@@ -70,6 +70,7 @@ public final class ClientRuntime {
 		BuiltinSignals.registerCoreSources(signals, clock);
 		BuiltinEvents.defineAll(events);
 		notifiers.register(new InGameNotifierType());
+		notifiers.register(new dev.sculkwire.core.notify.types.FileLogType(dir.resolve("logs")));
 		trackers = new Trackers(this);
 		ClientSignals.register(signals, trackers);
 		runPlugins();

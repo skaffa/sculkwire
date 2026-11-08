@@ -1,7 +1,10 @@
 package dev.sculkwire.core.notify;
 
 import dev.sculkwire.core.notify.types.DiscordType;
+import dev.sculkwire.core.notify.types.GotifyType;
 import dev.sculkwire.core.notify.types.NtfyType;
+import dev.sculkwire.core.notify.types.PushoverType;
+import dev.sculkwire.core.notify.types.TelegramType;
 import dev.sculkwire.core.notify.types.WebhookType;
 
 import java.util.ArrayList;
@@ -19,6 +22,9 @@ public final class NotifierRegistry {
 		r.register(new NtfyType());
 		r.register(new DiscordType());
 		r.register(new WebhookType());
+		r.register(new TelegramType());
+		r.register(new GotifyType());
+		r.register(new PushoverType());
 		return r;
 	}
 

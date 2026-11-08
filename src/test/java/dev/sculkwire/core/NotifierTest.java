@@ -263,6 +263,61 @@ class NotifierTest {
 	}
 
 	@Test
+	void telegramGotifyPushover() throws Exception {
+		Setup s = new Setup(new JdkHttpTransport());
+		NotifierConfig tg = s.add("tg", "telegram");
+		tg.settings.addProperty("chat_id", "4242");
+		tg.settings.addProperty("api_base", base);
+		s.secrets.set("tg", "bot_token", "123:abc");
+		NotifierConfig go = s.add("go", "gotify");
+		go.settings.addProperty("server", base + "/gotify");
+		s.secrets.set("go", "app_token", "AppTok");
+		NotifierConfig po = s.add("po", "pushover");
+		po.settings.addProperty("api_base", base);
+		s.secrets.set("po", "app_token", "atok");
+		s.secrets.set("po", "user_key", "ukey");
+		Notification n = new Notification(Template.literal("A <b> & c"), Template.parse("{v}"), Priority.LOW, List.of(), Template.EMPTY,
+				Snapshot.of(Map.of("v", Value.str("x < y"))), "r", "Rule", false, 0);
+		assertEquals(History.Status.SENT, s.send("tg", n).status());
+		assertEquals(History.Status.SENT, s.send("go", n).status());
+		assertEquals(History.Status.SENT, s.send("po", n).status());
+		Req t = requests.get(0);
+		assertEquals("/bot123:abc/sendMessage", t.path());
+		JsonObject tj = t.json();
+		assertEquals("4242", tj.get("chat_id").getAsString());
+		assertEquals("<b>A <b> & c</b>\nx &lt; y", tj.get("text").getAsString(), "title is literal template text; values are escaped");
+		assertTrue(tj.get("disable_notification").getAsBoolean());
+		Req g = requests.get(1);
+		assertEquals("/gotify/message", g.path());
+		assertEquals("AppTok", g.header("X-Gotify-Key"));
+		assertEquals(2, g.json().get("priority").getAsInt());
+		Req p = requests.get(2);
+		assertEquals("/1/messages.json", p.path());
+		assertTrue(p.body().contains("token=atok") && p.body().contains("user=ukey") && p.body().contains("priority=-1"));
+		assertTrue(p.body().contains("message=x+%3C+y"));
+	}
+
+	@Test
+	void fileLogStaysInsideItsFolder() throws Exception {
+		NotifierRegistry reg = NotifierRegistry.withBuiltins();
+		reg.register(new dev.sculkwire.core.notify.types.FileLogType(dir.resolve("logs")));
+		SculkwireConfig cfg = new SculkwireConfig();
+		NotifierConfig f = NotifierConfig.of("log", "Log", "file");
+		f.settings.addProperty("format", "jsonl");
+		cfg.notifiers.add(f);
+		Secrets secrets = Secrets.inMemory();
+		Dispatcher d = new Dispatcher(reg, () -> cfg, secrets, secrets::allValues, new JdkHttpTransport(),
+				new History(null, 10), Clock.system());
+		History.Entry e = d.submit("log", note("Hello", "World", Priority.HIGH)).get(5, TimeUnit.SECONDS);
+		assertEquals(History.Status.SENT, e.status(), e.error());
+		String line = java.nio.file.Files.readString(dir.resolve("logs/notifications.log"));
+		assertTrue(line.contains("\"title\":\"Hello\"") && line.contains("\"priority\":\"high\""), line);
+		NotifierConfig bad = NotifierConfig.of("bad", "Bad", "file");
+		bad.settings.addProperty("file", "../../escape.txt");
+		assertFalse(reg.get("file").validate(bad, secrets).isEmpty());
+	}
+
+	@Test
 	void validation() {
 		NotifierRegistry reg = NotifierRegistry.withBuiltins();
 		Secrets secrets = Secrets.inMemory();
