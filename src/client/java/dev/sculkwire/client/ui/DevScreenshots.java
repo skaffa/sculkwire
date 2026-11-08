@@ -11,13 +11,24 @@ import java.util.List;
 import java.util.function.Supplier;
 
 /**
- * Development aid, off by default: with {@code -Dsculkwire.devshots=true} it opens each editor screen
- * after joining a world and saves a screenshot of it (screenshots/sculkwire-*.png). Used to check the
- * UI without clicking through it.
+ * Development aid, off by default: with {@code -Dsculkwire.devshots=<mode>} it runs a list of steps after
+ * joining a world (or at the title screen for "modmenu"), each followed by a screenshot in
+ * screenshots/sculkwire-*.png. A step opens a screen or performs an action (e.g. simulated mouse input).
  */
 public final class DevScreenshots {
 	private static final String MODE = System.getProperty("sculkwire.devshots", "");
 	private static final boolean ENABLED = !MODE.isEmpty() && !MODE.equals("false");
+	private static final List<Runnable> STEPS = new ArrayList<>();
+	private static final List<String> NAMES = new ArrayList<>();
+	private static int step = -1;
+	private static int wait;
+
+	private DevScreenshots() {
+	}
+
+	public static String mode() {
+		return MODE;
+	}
 
 	/** "modmenu" mode starts at the title screen instead of after joining a world. */
 	public static boolean titleMode() {
@@ -30,17 +41,15 @@ public final class DevScreenshots {
 			wait = 60;
 		}
 	}
-	private static final List<Supplier<Screen>> SCREENS = new ArrayList<>();
-	private static final List<String> NAMES = new ArrayList<>();
-	private static int step = -1;
-	private static int wait;
-
-	private DevScreenshots() {
-	}
 
 	public static void add(String name, Supplier<Screen> screen) {
 		NAMES.add(name);
-		SCREENS.add(screen);
+		STEPS.add(() -> Minecraft.getInstance().gui.setScreen(screen.get()));
+	}
+
+	public static void addAction(String name, Runnable action) {
+		NAMES.add(name);
+		STEPS.add(action);
 	}
 
 	public static void onJoin() {
@@ -51,7 +60,7 @@ public final class DevScreenshots {
 	}
 
 	public static void tick(Minecraft mc) {
-		if (!ENABLED || step < 0 || step > SCREENS.size()) {
+		if (!ENABLED || step < 0 || step > STEPS.size()) {
 			return;
 		}
 		if (--wait > 0) {
@@ -62,11 +71,11 @@ public final class DevScreenshots {
 			Screenshot.grab(mc.gameDirectory, name + ".png", mc.gameRenderer.mainRenderTarget(), 1,
 					msg -> Sculkwire.LOG.info("dev screenshot {}: {}", name, msg.getString()));
 		}
-		if (step < SCREENS.size()) {
+		if (step < STEPS.size()) {
 			try {
-				mc.gui.setScreen(SCREENS.get(step).get());
+				STEPS.get(step).run();
 			} catch (RuntimeException e) {
-				Sculkwire.LOG.warn("dev screenshot {} failed", NAMES.get(step), e);
+				Sculkwire.LOG.warn("dev step {} failed", NAMES.get(step), e);
 			}
 		} else {
 			mc.gui.setScreen(null);

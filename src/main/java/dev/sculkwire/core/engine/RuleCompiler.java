@@ -215,31 +215,53 @@ public final class RuleCompiler {
 
 	private void compileBranches(Rule rule, SculkwireConfig cfg, Env env) {
 		CompiledRule cr = env.cr;
-		int elses = 0;
 		boolean anyTarget = false;
+		String prev = null;
 		for (int i = 0; i < rule.branches.size(); i++) {
 			Branch b = rule.branches.get(i);
+			String type = Branch.typeOf(rule.branches, i);
+			String label = switch (type) {
+				case Branch.IF -> "if";
+				case Branch.ELSE_IF -> "else if";
+				case Branch.ELSE -> "else";
+				case Branch.DO -> "send";
+				default -> type;
+			};
 			Cond when = null;
-			if (b.when == null) {
-				elses++;
-				if (i != rule.branches.size() - 1) {
-					cr.errors.add("'else' must be the last block");
+			switch (type) {
+				case Branch.IF, Branch.ELSE_IF -> {
+					if (b.when == null) {
+						cr.errors.add("'" + label + "' needs a condition");
+					} else {
+						when = cond(b.when, env);
+					}
+					if (type.equals(Branch.ELSE_IF) && !Branch.IF.equals(prev) && !Branch.ELSE_IF.equals(prev)) {
+						cr.errors.add("'else if' must come right after an 'if' or 'else if'");
+					}
 				}
-			} else {
-				when = cond(b.when, env);
+				case Branch.ELSE -> {
+					if (!Branch.IF.equals(prev) && !Branch.ELSE_IF.equals(prev)) {
+						cr.errors.add("'else' must come right after an 'if' or 'else if'");
+					}
+				}
+				case Branch.DO -> {
+				}
+				default -> cr.errors.add("Unknown block type '" + type + "'");
 			}
+			prev = type;
 			List<CompiledRule.CompiledTarget> targets = new ArrayList<>();
-			String label = b.when == null ? (rule.branches.size() == 1 ? "always" : "else") : i == 0 ? "if" : "else if";
 			if (b.sends == null || b.sends.isEmpty()) {
-				cr.warnings.add("The '" + label + "' block sends nothing");
+				if (!type.equals(Branch.DO)) {
+					cr.warnings.add("The '" + label + "' block sends nothing");
+				}
 			} else {
 				for (Send s : b.sends) {
 					MessageTemplate m = MessageTemplate.of("", "").merge(s.message);
 					if (isBlank(m.title) && isBlank(m.body)) {
-						cr.warnings.add("A send block in '" + label + "' has an empty message");
+						cr.warnings.add("A send block has an empty message");
 					}
 					if (s.notifiers == null || s.notifiers.isEmpty()) {
-						cr.warnings.add("A send block in '" + label + "' has no notifiers");
+						cr.warnings.add("A send block has no notifiers (click a notifier on it to select it)");
 						continue;
 					}
 					Template title = Template.parse(m.title);
@@ -262,10 +284,7 @@ public final class RuleCompiler {
 					}
 				}
 			}
-			cr.branches.add(new CompiledRule.CompiledBranch(when, targets));
-		}
-		if (elses > 1) {
-			cr.errors.add("Only one 'else' block is allowed");
+			cr.branches.add(new CompiledRule.CompiledBranch(type, when, targets));
 		}
 		if (!anyTarget) {
 			cr.warnings.add("No notifiers selected: this event will not send anything");

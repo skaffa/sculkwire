@@ -61,9 +61,15 @@ That's it. To see why an event did or did not send, look at its line on the Even
 
 ## How events work
 
-An event has a **trigger** (the *when* block) and a chain of **if / else if / else** blocks. The first
-block whose condition is true runs its **send** blocks, and each send has its own message and notifiers.
-A single *always* block simply sends every time.
+An event has a **trigger** (the *when* block) and a script of blocks that run from top to bottom:
+
+- **send** blocks send a message every time.
+- **if … then** sends what it holds when its condition is true.
+- **else if** (after an if) runs when nothing above it in the chain ran and its condition is true.
+- **else** runs when nothing above it in the chain ran.
+
+You can stack several sends and several if-chains in one event. Each send block lists your notifiers as
+chips: click a chip to include or leave out that notifier for that message.
 
 In the block editor:
 

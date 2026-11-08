@@ -52,6 +52,8 @@ public final class SculkwireClient implements ClientModInitializer {
 			if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("modmenu")) {
 				dev.sculkwire.client.compat.ModMenuIntegration.registerDevShots();
 			}
+		} else if (dev.sculkwire.client.ui.DevScreenshots.mode().equals("blocks")) {
+			dev.sculkwire.client.ui.BlockEditorScreen.registerSelfTest();
 		} else if (Boolean.parseBoolean(System.getProperty("sculkwire.devshots", "false"))) {
 			registerDevShots();
 		}

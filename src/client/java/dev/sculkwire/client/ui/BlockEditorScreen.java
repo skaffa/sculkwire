@@ -1,5 +1,6 @@
 package dev.sculkwire.client.ui;
 
+import dev.sculkwire.Sculkwire;
 import dev.sculkwire.client.ClientRuntime;
 import dev.sculkwire.core.engine.CompiledRule;
 import dev.sculkwire.core.event.EventSpec;
@@ -21,12 +22,14 @@ import dev.sculkwire.core.value.Op;
 import dev.sculkwire.core.value.Value;
 import dev.sculkwire.core.value.ValueType;
 
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.input.MouseButtonInfo;
 import net.minecraft.network.chat.Component;
 
 import java.util.ArrayDeque;
@@ -38,9 +41,10 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * The event editor as Scratch-like blocks: a "when" hat (the trigger), then an if / else-if / else chain
- * whose branches hold "send" blocks. Conditions are nested and/or/not blocks around comparisons.
- * Drag blocks (and live values) from the palette; click a block to edit it; right-click or drag it back
+ * The event editor as Scratch-like blocks. A "when" hat (the trigger) is followed by a script of blocks
+ * that run top to bottom: plain "send" blocks, and if / else if / else blocks that hold sends. Conditions
+ * are and/or/not blocks around comparisons. Drag blocks and live values from the palette; click a block
+ * to edit it (click a notifier on a send block to switch it on or off); right-click or drag a block back
  * to the palette to delete it.
  */
 public final class BlockEditorScreen extends Screen {
@@ -50,6 +54,8 @@ public final class BlockEditorScreen extends Screen {
 	private static final int CTRL_B = 0xFFC2730F;
 	private static final int SEND = 0xFF8F5CF0;
 	private static final int SEND_B = 0xFF6640B8;
+	private static final int CHIP_ON = 0xFFD9C7FF;
+	private static final int CHIP_OFF = 0x50000000;
 	private static final int LOGIC = 0xFF4CB34C;
 	private static final int LOGIC_B = 0xFF2F822F;
 	private static final int SENSE = 0xFF3E9FCC;
@@ -61,13 +67,16 @@ public final class BlockEditorScreen extends Screen {
 	private static final int DIM = 0xFFA0A0A0;
 	private static final int DROP = 0xFFFFFFFF;
 
+	/** Set by the dev self-test so dropping a send does not open its popup. */
+	static boolean selfTest;
+
 	private enum PKind {
-		IF, ELSE, SEND, AND, OR, NOT, COMPARE, MOVE_BRANCH, MOVE_SEND, MOVE_COND
+		IF, ELSE_IF, ELSE, SEND, AND, OR, NOT, COMPARE, MOVE_BRANCH, MOVE_SEND, MOVE_COND
 	}
 
 	private record Payload(PKind kind, Object obj, String label, int color) {
 		boolean isBranch() {
-			return kind == PKind.IF || kind == PKind.ELSE || kind == PKind.MOVE_BRANCH;
+			return kind == PKind.IF || kind == PKind.ELSE_IF || kind == PKind.ELSE || kind == PKind.MOVE_BRANCH;
 		}
 
 		boolean isSend() {
@@ -77,6 +86,10 @@ public final class BlockEditorScreen extends Screen {
 		boolean isCond() {
 			return kind == PKind.AND || kind == PKind.OR || kind == PKind.NOT || kind == PKind.COMPARE || kind == PKind.MOVE_COND;
 		}
+
+		boolean moving() {
+			return kind == PKind.MOVE_BRANCH || kind == PKind.MOVE_SEND || kind == PKind.MOVE_COND;
+		}
 	}
 
 	/** Where a condition lives, so it can be replaced. */
@@ -85,23 +98,26 @@ public final class BlockEditorScreen extends Screen {
 
 		void set(Condition c);
 
-		/** The group this condition is a child of (null for a branch condition). */
 		default Condition group() {
 			return null;
 		}
 	}
 
 	private enum HKind {
-		HAT, BRANCH, SEND, COND, SLOT, GROUP_LABEL, BRANCH_DROP, SEND_DROP, GROUP_ADD, EMPTY_CANVAS
+		HAT, BRANCH, BRANCH_LABEL, SEND, CHIP, COND, SLOT, GROUP_LABEL, BRANCH_DROP, SEND_DROP, GROUP_ADD, EMPTY_CANVAS
 	}
 
-	private record Hit(HKind kind, int x, int y, int w, int h, Branch branch, int index, Send send, Holder holder) {
+	private record Hit(HKind kind, int x, int y, int w, int h, Branch branch, int index, Send send, Holder holder, String id) {
 		boolean contains(double px, double py, int pad) {
 			return px >= x - pad && px < x + w + pad && py >= y - pad && py < y + h + pad;
 		}
+
+		boolean isZone() {
+			return kind == HKind.BRANCH_DROP || kind == HKind.SEND_DROP || kind == HKind.EMPTY_CANVAS;
+		}
 	}
 
-	private record PalItem(String label, String value, int color, Payload payload, String hint) {
+	private record PalItem(String label, boolean live, int color, Payload payload, String hint) {
 		boolean header() {
 			return payload == null;
 		}
@@ -113,7 +129,7 @@ public final class BlockEditorScreen extends Screen {
 	private final String originalId;
 	private Rule rule;
 	private CompiledRule compiled;
-	private int liveBranch = -1;
+	private List<Integer> running = List.of();
 	private final Deque<String> undo = new ArrayDeque<>();
 
 	private int palW;
@@ -126,8 +142,8 @@ public final class BlockEditorScreen extends Screen {
 	private int contentH;
 	private int contentW;
 	private int palContentH;
-	private EditBox search;
 	private String filter = "";
+	private String lastHint = "";
 	private final List<Hit> hits = new ArrayList<>();
 	private final List<PalItem> palette = new ArrayList<>();
 	private final List<int[]> palPos = new ArrayList<>();
@@ -138,7 +154,7 @@ public final class BlockEditorScreen extends Screen {
 	private double pressY;
 	private boolean dragging;
 	private Runnable restore;
-	private int pressButton;
+	private int pressButton = -1;
 
 	public BlockEditorScreen(Screen parent, Rule rule, boolean isNew) {
 		super(Component.literal(isNew ? "New event" : "Edit event"));
@@ -150,7 +166,7 @@ public final class BlockEditorScreen extends Screen {
 		recompile();
 	}
 
-	/** An example with if / else-if / else, for screenshots. */
+	/** An example script for screenshots. */
 	public static Rule demoRule() {
 		Rule r = new Rule();
 		r.name = "Health check while away";
@@ -159,43 +175,52 @@ public final class BlockEditorScreen extends Screen {
 		Condition notPlaying = Condition.group("none", Condition.compare(Operand.signal("session.actively_playing"), "is_true"));
 		Condition low = Condition.compare(Operand.signal("player.health"), "lt", Operand.value(6));
 		r.branches = new ArrayList<>(List.of(
-				Branch.of(Condition.group("all", low, notPlaying),
+				Branch.typed(Branch.IF, Condition.group("all", low, notPlaying),
 						Send.of(MessageTemplate.of("Low health while away!", "{player.health|hearts} hearts"), n)),
-				Branch.of(Condition.group("any", Condition.compare(Operand.payload("damage.source"), "contains", Operand.value("lava")),
-						Condition.compare(Operand.signal("player.on_fire"), "is_true")),
+				Branch.typed(Branch.ELSE_IF, Condition.compare(Operand.signal("player.on_fire"), "is_true"),
 						Send.of(MessageTemplate.of("You are burning", "{damage.source}"), n)),
-				Branch.of(null, Send.of(MessageTemplate.of("Took {damage.amount} damage", ""), n))));
+				Branch.typed(Branch.ELSE, null, Send.of(MessageTemplate.of("Took {damage.amount} damage", ""), n)),
+				Branch.typed(Branch.DO, null, Send.of(MessageTemplate.of("Damage log", "{damage.amount} from {damage.source}")))));
 		return r;
 	}
 
-	/** Puts the rule in block form: legacy message + targets become one "always" branch. */
+	/** Puts the rule in block form: legacy message + targets become one send block; block types are made explicit. */
 	private void normalize() {
 		if (rule.trigger == null) {
 			rule.trigger = new Trigger();
 		}
-		if (rule.hasBranches()) {
-			return;
-		}
-		Send s = new Send();
-		s.message = rule.message == null ? MessageTemplate.of("", "") : Json.copy(rule.message, MessageTemplate.class);
-		for (Target t : rule.targets) {
-			if (!s.notifiers.contains(t.notifier)) {
-				s.notifiers.add(t.notifier);
+		if (!rule.hasBranches()) {
+			Send s = new Send();
+			s.message = rule.message == null ? MessageTemplate.of("", "") : Json.copy(rule.message, MessageTemplate.class);
+			for (Target t : rule.targets) {
+				if (!s.notifiers.contains(t.notifier)) {
+					s.notifiers.add(t.notifier);
+				}
 			}
+			rule.branches = new ArrayList<>();
+			rule.branches.add(Branch.typed(Branch.DO, null, s));
 		}
-		rule.branches = new ArrayList<>();
-		rule.branches.add(Branch.of(null, s));
+		List<String> types = new ArrayList<>();
+		for (int i = 0; i < rule.branches.size(); i++) {
+			types.add(Branch.typeOf(rule.branches, i));
+		}
+		for (int i = 0; i < rule.branches.size(); i++) {
+			rule.branches.get(i).type = types.get(i);
+		}
+	}
+
+	private void cleanup() {
+		if (rule.branches != null) {
+			rule.branches.removeIf(b -> Branch.DO.equals(b.type) && b.sends.isEmpty());
+		}
 	}
 
 	private void recompile() {
+		cleanup();
 		compiled = rt.engine.compiler().compile(rule, rt.config());
-		liveBranch = -1;
+		running = List.of();
 		if (compiled.errors.isEmpty()) {
-			try {
-				liveBranch = rt.engine.previewBranch(compiled);
-			} catch (RuntimeException ignored) {
-				// preview is best effort
-			}
+			running = rt.engine.previewBlocks(compiled);
 		}
 	}
 
@@ -207,15 +232,10 @@ public final class BlockEditorScreen extends Screen {
 	}
 
 	private void doUndo() {
-		if (undo.isEmpty()) {
-			return;
+		if (!undo.isEmpty()) {
+			rule = Json.COMPACT.fromJson(undo.pop(), Rule.class);
+			recompile();
 		}
-		rule = Json.COMPACT.fromJson(undo.pop(), Rule.class);
-		recompile();
-	}
-
-	private void mutated() {
-		recompile();
 	}
 
 	// ---- screen setup ----
@@ -230,8 +250,8 @@ public final class BlockEditorScreen extends Screen {
 		addRenderableWidget(btn("⚙ Settings", "Name, limits and where this event applies",
 				() -> minecraft.gui.setScreen(RuleEditScreen.popup(this, rule, RuleEditScreen.Section.SETTINGS, null)), width - 236, 20, 80));
 		addRenderableWidget(btn("Undo", "Ctrl+Z", this::doUndo, width - 152, 20, 46));
-		addRenderableWidget(btn("Test send", "Send now with current values (marked as test)", this::test, width - 102, 20, 96));
-		search = new EditBox(font, 4, 20, palW - 4, 18, Component.empty());
+		addRenderableWidget(btn("Test send", "Send now with the current values (marked as test)", this::test, width - 102, 20, 96));
+		EditBox search = new EditBox(font, 4, 20, palW - 4, 18, Component.empty());
 		search.setMaxLength(60);
 		search.setValue(filter);
 		search.setHint(Component.literal("Search values…").withStyle(net.minecraft.ChatFormatting.DARK_GRAY));
@@ -266,28 +286,32 @@ public final class BlockEditorScreen extends Screen {
 		palette.clear();
 		String f = filter.toLowerCase(Locale.ROOT).trim();
 		if (f.isEmpty()) {
-			palette.add(new PalItem("Blocks", "", 0, null, null));
-			palette.add(new PalItem("if … then", "", CTRL, new Payload(PKind.IF, null, "if … then", CTRL), "Runs its sends when the condition is true"));
-			palette.add(new PalItem("else", "", CTRL, new Payload(PKind.ELSE, null, "else", CTRL), "Runs when no 'if' above matched"));
-			palette.add(new PalItem("send message", "", SEND, new Payload(PKind.SEND, null, "send message", SEND), "Send a message to notifiers"));
-			palette.add(new PalItem("… and …", "", LOGIC, new Payload(PKind.AND, null, "and", LOGIC), "Both must be true"));
-			palette.add(new PalItem("… or …", "", LOGIC, new Payload(PKind.OR, null, "or", LOGIC), "One must be true"));
-			palette.add(new PalItem("not …", "", LOGIC, new Payload(PKind.NOT, null, "not", LOGIC), "Must be false"));
-			palette.add(new PalItem("Common", "", 0, null, null));
+			palette.add(new PalItem("Blocks", false, 0, null, null));
+			palette.add(new PalItem("send message", false, SEND, new Payload(PKind.SEND, null, "send message", SEND),
+					"Sends a message to the notifiers you click on it"));
+			palette.add(new PalItem("if … then", false, CTRL, new Payload(PKind.IF, null, "if … then", CTRL),
+					"Runs the sends inside when the condition is true"));
+			palette.add(new PalItem("else if … then", false, CTRL, new Payload(PKind.ELSE_IF, null, "else if … then", CTRL),
+					"After an if: runs when the if above did not, and this condition is true"));
+			palette.add(new PalItem("else", false, CTRL, new Payload(PKind.ELSE, null, "else", CTRL),
+					"After an if: runs when no if / else if above ran"));
+			palette.add(new PalItem("… and …", false, LOGIC, new Payload(PKind.AND, null, "and", LOGIC), "Both must be true"));
+			palette.add(new PalItem("… or …", false, LOGIC, new Payload(PKind.OR, null, "or", LOGIC), "One must be true"));
+			palette.add(new PalItem("not …", false, LOGIC, new Payload(PKind.NOT, null, "not", LOGIC), "Must be false"));
+			palette.add(new PalItem("Common", false, 0, null, null));
 			for (String id : List.of("session.actively_playing", "session.afk_seconds", "player.health", "world.is_night",
 					"nearby.hostiles", "player.dimension", "world.weather")) {
 				addSignal(id);
 			}
 		}
-		Map<String, ValueType> payload = triggerValues();
 		boolean first = true;
-		for (Map.Entry<String, ValueType> e : payload.entrySet()) {
+		for (Map.Entry<String, ValueType> e : triggerValues().entrySet()) {
 			if (match(f, e.getKey(), "")) {
 				if (first) {
-					palette.add(new PalItem("This trigger", "", 0, null, null));
+					palette.add(new PalItem("This trigger", false, 0, null, null));
 					first = false;
 				}
-				palette.add(new PalItem(e.getKey(), "", SENSE, new Payload(PKind.COMPARE, Operand.payload(e.getKey()), e.getKey(), SENSE),
+				palette.add(new PalItem(e.getKey(), false, SENSE, new Payload(PKind.COMPARE, Operand.payload(e.getKey()), e.getKey(), SENSE),
 						"A value of this trigger (" + e.getValue().id() + ")"));
 			}
 		}
@@ -295,10 +319,10 @@ public final class BlockEditorScreen extends Screen {
 		for (UserVariable v : rt.config().variables) {
 			if (match(f, v.name, "")) {
 				if (first) {
-					palette.add(new PalItem("Your variables", "", 0, null, null));
+					palette.add(new PalItem("Your variables", false, 0, null, null));
 					first = false;
 				}
-				palette.add(new PalItem(v.name, "", SENSE, new Payload(PKind.COMPARE, Operand.var(v.name), v.name, SENSE), "Your variable"));
+				palette.add(new PalItem(v.name, false, SENSE, new Payload(PKind.COMPARE, Operand.var(v.name), v.name, SENSE), "Your variable"));
 			}
 		}
 		String cat = null;
@@ -308,25 +332,10 @@ public final class BlockEditorScreen extends Screen {
 			}
 			if (!s.category().equals(cat)) {
 				cat = s.category();
-				palette.add(new PalItem(RuleEditScreen.cap(cat), "", 0, null, null));
+				palette.add(new PalItem(RuleEditScreen.cap(cat), false, 0, null, null));
 			}
 			addSignal(s.id());
 		}
-		layoutPalette();
-	}
-
-	private void addSignal(String id) {
-		SignalSpec s = rt.signals.spec(id);
-		if (s != null) {
-			palette.add(new PalItem(s.id(), "live", SENSE, new Payload(PKind.COMPARE, Operand.signal(s.id()), s.id(), SENSE), s.description()));
-		}
-	}
-
-	private static boolean match(String f, String a, String b) {
-		return f.isEmpty() || a.toLowerCase(Locale.ROOT).contains(f) || b.toLowerCase(Locale.ROOT).contains(f);
-	}
-
-	private void layoutPalette() {
 		palPos.clear();
 		int y = 0;
 		for (PalItem it : palette) {
@@ -335,6 +344,17 @@ public final class BlockEditorScreen extends Screen {
 			y += h + (it.header() ? 1 : 2);
 		}
 		palContentH = y;
+	}
+
+	private void addSignal(String id) {
+		SignalSpec s = rt.signals.spec(id);
+		if (s != null) {
+			palette.add(new PalItem(s.id(), true, SENSE, new Payload(PKind.COMPARE, Operand.signal(s.id()), s.id(), SENSE), s.description()));
+		}
+	}
+
+	private static boolean match(String f, String a, String b) {
+		return f.isEmpty() || a.toLowerCase(Locale.ROOT).contains(f) || b.toLowerCase(Locale.ROOT).contains(f);
 	}
 
 	private Map<String, ValueType> triggerValues() {
@@ -357,9 +377,7 @@ public final class BlockEditorScreen extends Screen {
 	public void extractRenderState(GuiGraphicsExtractor g, int mx, int my, float delta) {
 		super.extractRenderState(g, mx, my, delta);
 		String name = rule.name == null || rule.name.isBlank() ? "(unnamed event)" : rule.name;
-		g.text(font, (isNew ? "New event: " : "Event: ") + name, canvasX, 6, TEXT, true);
-
-		// panels
+		g.text(font, font.plainSubstrByWidth((isNew ? "New event: " : "Event: ") + name, width - canvasX - 240), canvasX, 26, TEXT, true);
 		g.fill(0, top, palW + 2, bottom, PANEL);
 		g.fill(canvasX - 2, top, width, bottom, 0x70000000);
 
@@ -371,12 +389,16 @@ public final class BlockEditorScreen extends Screen {
 		if (dragging && pressed != null) {
 			Hit target = findDrop(pressed, mx, my);
 			if (target != null) {
-				outline(g, target.x(), target.y(), target.w(), target.h(), DROP);
+				if (target.kind() == HKind.BRANCH_DROP || target.kind() == HKind.SEND_DROP) {
+					g.fill(target.x(), target.y() + target.h() / 2 - 1, target.x() + Math.max(80, target.w()), target.y() + target.h() / 2 + 1, DROP);
+				} else {
+					outline(g, target.x(), target.y(), target.w(), target.h(), DROP);
+				}
 			}
 		}
 		g.disableScissor();
 
-		drawProblems(g);
+		drawStatus(g);
 
 		if (dragging && pressed != null) {
 			int w = font.width(pressed.label()) + 14;
@@ -387,7 +409,7 @@ public final class BlockEditorScreen extends Screen {
 			} else {
 				block(g, x, y, w, 16, pressed.color(), darker(pressed.color()));
 			}
-			g.text(font, pressed.label(), x + 7, y + 3, TEXT, true);
+			g.text(font, pressed.label(), x + 7, y + 4, TEXT, true);
 		}
 	}
 
@@ -412,15 +434,13 @@ public final class BlockEditorScreen extends Screen {
 			} else {
 				block(g, x, y, w, h, it.color(), darker(it.color()));
 			}
-			String label = it.label();
 			String val = "";
-			if ("live".equals(it.value())) {
+			if (it.live()) {
 				Value v = rt.engine.reader().read(it.label(), Map.of());
 				val = v.isNone() ? "–" : v.asString();
 			}
 			int valW = val.isEmpty() ? 0 : Math.min(font.width(val), w / 3);
-			String shown = font.plainSubstrByWidth(label, w - 12 - valW - (valW > 0 ? 4 : 0));
-			g.text(font, shown, x + 6, y + 4, TEXT, true);
+			g.text(font, font.plainSubstrByWidth(it.label(), w - 12 - valW - (valW > 0 ? 4 : 0)), x + 6, y + 4, TEXT, true);
 			if (!val.isEmpty()) {
 				String v2 = font.plainSubstrByWidth(val, valW);
 				g.text(font, v2, x + w - 6 - font.width(v2), y + 4, 0xFFE0F6FF, false);
@@ -433,16 +453,13 @@ public final class BlockEditorScreen extends Screen {
 			int barY = top + (int) ((view - barH) * (palScroll / Math.max(1, palContentH - view)));
 			g.fill(palW, barY, palW + 2, barY + barH, 0xA0FFFFFF);
 		}
-		// tooltip for the hovered palette item
 		PalItem hover = paletteAt(mx, my);
 		if (hover != null && hover.hint() != null && !dragging) {
 			lastHint = hover.hint();
 		}
 	}
 
-	private String lastHint = "";
-
-	private void drawProblems(GuiGraphicsExtractor g) {
+	private void drawStatus(GuiGraphicsExtractor g) {
 		String line;
 		int color;
 		if (!compiled.errors.isEmpty()) {
@@ -452,7 +469,7 @@ public final class BlockEditorScreen extends Screen {
 			line = "⚠ " + compiled.warnings.get(0);
 			color = 0xFFFFC04D;
 		} else {
-			line = "✔ Ready" + (liveBranch >= 0 ? " — right now the highlighted block would run" : "");
+			line = "✔ Ready" + (running.isEmpty() ? "" : " — blocks marked ◀ would run right now");
 			color = 0xFF55DD77;
 		}
 		int y = bottom + 3;
@@ -468,38 +485,58 @@ public final class BlockEditorScreen extends Screen {
 		int startY = y;
 		int maxW = 0;
 
-		// hat
 		String when = "when " + triggerText();
 		String onlyIf = rule.conditions != null ? "only if " + rule.conditions.describe() : null;
 		int hatW = Math.max(150, Math.max(font.width(when), onlyIf == null ? 0 : font.width(onlyIf)) + 18);
 		int hatH = onlyIf == null ? 22 : 32;
 		block(g, x0, y, hatW, hatH, HAT, HAT_B);
-		g.fill(x0, y - 3, x0 + 60, y, HAT);
 		g.text(font, when, x0 + 8, y + 7, TEXT, true);
 		if (onlyIf != null) {
 			g.text(font, onlyIf, x0 + 8, y + 19, 0xFFFFF2C0, false);
 		}
-		hits.add(new Hit(HKind.HAT, x0, y, hatW, hatH, null, -1, null, null));
+		hits.add(hit(HKind.HAT, x0, y, hatW, hatH, null, -1, null, null, null));
 		maxW = Math.max(maxW, hatW);
-		y += hatH + 2;
+		y += hatH + 3;
 
-		List<Branch> branches = rule.branches == null ? List.of() : rule.branches;
-		for (int i = 0; i < branches.size(); i++) {
-			Branch b = branches.get(i);
-			hits.add(new Hit(HKind.BRANCH_DROP, x0, y - 4, 200, 8, null, i, null, null));
-			String label = labelFor(i);
+		List<Branch> blocks = rule.branches == null ? List.of() : rule.branches;
+		for (int i = 0; i < blocks.size(); i++) {
+			Branch b = blocks.get(i);
+			hits.add(hit(HKind.BRANCH_DROP, x0, y - 4, 220, 8, null, i, null, null, null));
+			if (Branch.DO.equals(b.type)) {
+				for (int j = 0; j < b.sends.size(); j++) {
+					hits.add(hit(HKind.SEND_DROP, x0, y - 3, 160, 5, b, j, null, null, null));
+					int w = drawSend(g, b, j, x0, y);
+					if (running.contains(i)) {
+						g.text(font, "◀", x0 + w + 4, y + 5, 0xFF55DD77, false);
+					}
+					maxW = Math.max(maxW, w + 20);
+					y += 21;
+				}
+				hits.add(hit(HKind.SEND_DROP, x0, y - 3, 160, 5, b, b.sends.size(), null, null, null));
+				y += 2;
+				continue;
+			}
+			String label = switch (b.type) {
+				case Branch.IF -> "if";
+				case Branch.ELSE_IF -> "else if";
+				case Branch.ELSE -> "else";
+				default -> b.type;
+			};
 			int labelW = font.width(label);
-			int[] expr = b.when == null ? new int[] {0, 0} : measure(b.when);
+			boolean conditional = b.conditional();
+			if (conditional && b.when == null) {
+				b.when = slot();
+			}
+			int[] expr = conditional ? measure(b.when) : new int[] {0, 0};
 			int headerH = Math.max(20, expr[1] + 6);
-			int headerW = b.when == null ? labelW + 20 : 8 + labelW + 6 + expr[0] + 6 + font.width("then") + 10;
-			List<int[]> sendSizes = new ArrayList<>();
+			int headerW = conditional ? 8 + labelW + 6 + expr[0] + 6 + font.width("then") + 10 : labelW + 20;
+			int[] sendW = new int[b.sends.size()];
 			int bodyH = 4;
 			int maxSendW = 0;
-			for (Send s : b.sends) {
-				int sw = font.width(sendText(s)) + 16;
-				sendSizes.add(new int[] {sw, 18});
-				bodyH += 20;
-				maxSendW = Math.max(maxSendW, sw);
+			for (int j = 0; j < b.sends.size(); j++) {
+				sendW[j] = sendWidth(b.sends.get(j));
+				bodyH += 21;
+				maxSendW = Math.max(maxSendW, sendW[j]);
 			}
 			if (b.sends.isEmpty()) {
 				bodyH += 16;
@@ -507,86 +544,107 @@ public final class BlockEditorScreen extends Screen {
 			}
 			int arm = 12;
 			int w = Math.max(Math.max(headerW, arm + maxSendW + 10), 130);
-			int footH = 10;
-			// C-block
 			block(g, x0, y, w, headerH, CTRL, CTRL_B);
 			block(g, x0, y + headerH - 1, arm, bodyH + 2, CTRL, CTRL_B);
-			block(g, x0, y + headerH + bodyH, Math.min(w, 90), footH, CTRL, CTRL_B);
+			block(g, x0, y + headerH + bodyH, Math.min(w, 90), 10, CTRL, CTRL_B);
 			g.fill(x0 + 1, y + headerH - 1, x0 + arm - 1, y + headerH + bodyH + 1, CTRL);
 			g.text(font, label, x0 + 8, y + (headerH - 8) / 2, TEXT, true);
-			if (b.when != null) {
+			hits.add(hit(HKind.BRANCH, x0, y, w, headerH, b, i, null, null, null));
+			if (conditional) {
+				hits.add(hit(HKind.BRANCH_LABEL, x0 + 4, y, labelW + 8, headerH, b, i, null, null, null));
 				int ex = x0 + 8 + labelW + 6;
-				int ey = y + (headerH - expr[1]) / 2;
-				Branch bb = b;
 				drawExpr(g, b.when, new Holder() {
 					@Override
 					public Condition get() {
-						return bb.when;
+						return b.when;
 					}
 
 					@Override
 					public void set(Condition c) {
-						bb.when = c;
+						b.when = c;
 					}
-				}, ex, ey);
+				}, ex, y + (headerH - expr[1]) / 2);
 				g.text(font, "then", ex + expr[0] + 6, y + (headerH - 8) / 2, TEXT, true);
 			}
-			if (i == liveBranch) {
+			if (running.contains(i)) {
 				g.text(font, "◀ now", x0 + w + 6, y + (headerH - 8) / 2, 0xFF55DD77, false);
 			}
-			hits.add(new Hit(HKind.BRANCH, x0, y, w, headerH, b, i, null, null));
 			int sy = y + headerH + 2;
 			int sx = x0 + arm + 2;
 			for (int j = 0; j < b.sends.size(); j++) {
-				Send s = b.sends.get(j);
-				hits.add(new Hit(HKind.SEND_DROP, sx, sy - 3, Math.max(60, sendSizes.get(j)[0]), 5, b, j, null, null));
-				int sw = sendSizes.get(j)[0];
-				block(g, sx, sy, sw, 18, SEND, SEND_B);
-				g.text(font, sendText(s), sx + 8, sy + 5, TEXT, true);
-				hits.add(new Hit(HKind.SEND, sx, sy, sw, 18, b, j, s, null));
-				sy += 20;
+				hits.add(hit(HKind.SEND_DROP, sx, sy - 3, Math.max(80, sendW[j]), 5, b, j, null, null, null));
+				drawSend(g, b, j, sx, sy);
+				sy += 21;
 			}
 			if (b.sends.isEmpty()) {
 				outline(g, sx, sy, maxSendW, 14, 0x60FFFFFF);
 				g.text(font, "drop a send block here", sx + 6, sy + 3, 0xA0FFFFFF, false);
-				hits.add(new Hit(HKind.SEND_DROP, sx, sy, maxSendW, 14, b, 0, null, null));
+				hits.add(hit(HKind.SEND_DROP, sx, sy, maxSendW, 14, b, 0, null, null, null));
 			} else {
-				hits.add(new Hit(HKind.SEND_DROP, sx, sy - 3, 80, 6, b, b.sends.size(), null, null));
+				hits.add(hit(HKind.SEND_DROP, sx, sy - 3, 80, 6, b, b.sends.size(), null, null, null));
 			}
 			maxW = Math.max(maxW, w + 50);
-			y += headerH + bodyH + footH + 2;
+			y += headerH + bodyH + 10 + 3;
 		}
-		hits.add(new Hit(HKind.BRANCH_DROP, x0, y - 4, 200, 10, null, branches.size(), null, null));
-		if (branches.isEmpty()) {
-			g.text(font, "Drag an 'if … then' or a 'send message' block here", x0 + 4, y + 6, 0xA0FFFFFF, false);
-			hits.add(new Hit(HKind.EMPTY_CANVAS, x0, y, 260, 30, null, 0, null, null));
-			y += 30;
+		hits.add(hit(HKind.BRANCH_DROP, x0, y - 4, 220, 10, null, blocks.size(), null, null, null));
+		if (blocks.isEmpty()) {
+			g.text(font, "Drag a 'send message' or 'if … then' block here", x0 + 4, y + 6, 0xA0FFFFFF, false);
+			hits.add(hit(HKind.EMPTY_CANVAS, x0, y, 280, 34, null, 0, null, null, null));
+			y += 34;
 		}
-		contentH = y - startY + 20;
-		contentW = maxW + 20;
+		contentH = y - startY + 30;
+		contentW = maxW + 30;
 	}
 
-	private String labelFor(int i) {
-		Branch b = rule.branches.get(i);
-		if (b.when == null) {
-			return rule.branches.size() == 1 ? "always" : "else";
-		}
-		return i == 0 ? "if" : "else if";
+	private static Hit hit(HKind k, int x, int y, int w, int h, Branch b, int index, Send s, Holder holder, String id) {
+		return new Hit(k, x, y, w, h, b, index, s, holder, id);
 	}
 
-	private String sendText(Send s) {
+	private String sendLabel(Send s) {
 		String t = s.message == null ? "" : s.message.title == null || s.message.title.isBlank() ? s.message.body : s.message.title;
 		t = t == null || t.isBlank() ? "(empty message)" : "“" + firstLine(t) + "”";
-		if (t.length() > 34) {
-			t = t.substring(0, 33) + "…”";
-		}
-		List<String> names = new ArrayList<>();
-		for (String n : s.notifiers) {
-			NotifierConfig nc = rt.config().notifier(n);
-			names.add(nc == null ? n + "?" : nc.displayName());
+		if (t.length() > 30) {
+			t = t.substring(0, 29) + "…”";
 		}
 		String prio = s.message != null && s.message.priority != null && !s.message.priority.equals("default") ? " [" + s.message.priority + "]" : "";
-		return "send " + t + " to " + (names.isEmpty() ? "nobody" : String.join(", ", names)) + prio;
+		return "send " + t + prio + " to";
+	}
+
+	private int sendWidth(Send s) {
+		int w = 8 + font.width(sendLabel(s)) + 4;
+		List<NotifierConfig> ns = rt.config().notifiers;
+		if (ns.isEmpty()) {
+			w += font.width("(add a notifier first)") + 4;
+		}
+		for (NotifierConfig n : ns) {
+			w += font.width(n.displayName()) + 10;
+		}
+		return w + 4;
+	}
+
+	/** Draws a send block with a chip per notifier; returns its width. */
+	private int drawSend(GuiGraphicsExtractor g, Branch b, int j, int x, int y) {
+		Send s = b.sends.get(j);
+		int w = sendWidth(s);
+		block(g, x, y, w, 19, SEND, SEND_B);
+		String label = sendLabel(s);
+		g.text(font, label, x + 8, y + 6, TEXT, true);
+		hits.add(hit(HKind.SEND, x, y, w, 19, b, j, s, null, null));
+		int cx = x + 8 + font.width(label) + 4;
+		List<NotifierConfig> ns = rt.config().notifiers;
+		if (ns.isEmpty()) {
+			g.text(font, "(add a notifier first)", cx, y + 6, 0xFFE0D0FF, false);
+		}
+		for (NotifierConfig n : ns) {
+			String nm = n.displayName();
+			int cw = font.width(nm) + 8;
+			boolean on = s.notifiers.contains(n.id);
+			g.fill(cx, y + 3, cx + cw, y + 16, on ? CHIP_ON : CHIP_OFF);
+			g.text(font, nm, cx + 4, y + 6, on ? 0xFF3A2266 : 0xFFB8A8D8, false);
+			hits.add(hit(HKind.CHIP, cx, y + 3, cw, 13, b, j, s, null, n.id));
+			cx += cw + 2;
+		}
+		return w;
 	}
 
 	private static String firstLine(String s) {
@@ -619,7 +677,7 @@ public final class BlockEditorScreen extends Screen {
 		};
 	}
 
-	// ---- expressions ----
+	// ---- condition expressions ----
 
 	private static boolean isSlot(Condition c) {
 		return c == null || (!c.isGroup() && (c.left == null || c.left.isEmpty()));
@@ -639,7 +697,7 @@ public final class BlockEditorScreen extends Screen {
 		return left + " " + ops + " " + right;
 	}
 
-	private String groupWord(Condition c) {
+	private static String groupWord(Condition c) {
 		return switch (c.op == null ? "all" : c.op) {
 			case "any" -> "or";
 			case "none" -> "not";
@@ -647,7 +705,10 @@ public final class BlockEditorScreen extends Screen {
 		};
 	}
 
-	/** {width, height} of a condition block. */
+	private boolean draggingCond() {
+		return dragging && pressed != null && pressed.isCond();
+	}
+
 	private int[] measure(Condition c) {
 		if (isSlot(c)) {
 			return new int[] {34, 14};
@@ -656,13 +717,10 @@ public final class BlockEditorScreen extends Screen {
 			return new int[] {font.width(compareText(c)) + 16, 14};
 		}
 		String word = groupWord(c);
-		List<Condition> kids = c.children == null ? List.of() : c.children;
-		int w = 8;
-		int h = 14;
 		boolean not = word.equals("not");
-		if (not) {
-			w += font.width("not") + 6;
-		}
+		List<Condition> kids = c.children == null ? List.of() : c.children;
+		int w = 8 + (not ? font.width("not") + 6 : 0);
+		int h = 14;
 		for (int i = 0; i < kids.size(); i++) {
 			int[] k = measure(kids.get(i));
 			w += k[0];
@@ -674,7 +732,7 @@ public final class BlockEditorScreen extends Screen {
 		if (kids.isEmpty()) {
 			w += 34;
 		}
-		if (dragging && pressed != null && pressed.isCond()) {
+		if (draggingCond()) {
 			w += 18;
 		}
 		return new int[] {w + 6, Math.max(h, 18)};
@@ -684,17 +742,17 @@ public final class BlockEditorScreen extends Screen {
 		int[] size = measure(c);
 		if (isSlot(c)) {
 			hexBlock(g, x, y, size[0], size[1], SLOT_FILL, SLOT_B);
-			hits.add(new Hit(HKind.SLOT, x, y, size[0], size[1], null, -1, null, holder));
+			hits.add(hit(HKind.SLOT, x, y, size[0], size[1], null, -1, null, holder, null));
 			return;
 		}
 		if (!c.isGroup()) {
 			hexBlock(g, x, y, size[0], size[1], SENSE, SENSE_B);
 			g.text(font, compareText(c), x + 8, y + 3, TEXT, true);
-			hits.add(new Hit(HKind.COND, x, y, size[0], size[1], null, -1, null, holder));
+			hits.add(hit(HKind.COND, x, y, size[0], size[1], null, -1, null, holder, null));
 			return;
 		}
 		hexBlock(g, x, y, size[0], size[1], LOGIC, LOGIC_B);
-		hits.add(new Hit(HKind.COND, x, y, size[0], size[1], null, -1, null, holder));
+		hits.add(hit(HKind.COND, x, y, size[0], size[1], null, -1, null, holder, null));
 		String word = groupWord(c);
 		boolean not = word.equals("not");
 		int cx = x + 7;
@@ -706,9 +764,8 @@ public final class BlockEditorScreen extends Screen {
 		if (c.children == null) {
 			c.children = new ArrayList<>();
 		}
-		List<Condition> kids = c.children;
-		for (int i = 0; i < kids.size(); i++) {
-			Condition k = kids.get(i);
+		for (int i = 0; i < c.children.size(); i++) {
+			Condition k = c.children.get(i);
 			int[] ks = measure(k);
 			int idx = i;
 			drawExpr(g, k, new Holder() {
@@ -728,23 +785,23 @@ public final class BlockEditorScreen extends Screen {
 				}
 			}, cx, y + (size[1] - ks[1]) / 2);
 			cx += ks[0];
-			if (i < kids.size() - 1) {
+			if (i < c.children.size() - 1) {
 				String w = not ? "or" : word;
 				cx += 4;
 				g.text(font, w, cx, ty, TEXT, true);
-				hits.add(new Hit(HKind.GROUP_LABEL, cx - 2, y, font.width(w) + 4, size[1], null, -1, null, holder));
+				hits.add(hit(HKind.GROUP_LABEL, cx - 2, y, font.width(w) + 4, size[1], null, -1, null, holder, null));
 				cx += font.width(w) + 4;
 			}
 		}
-		if (kids.isEmpty()) {
+		if (c.children.isEmpty()) {
 			hexBlock(g, cx, y + (size[1] - 14) / 2, 34, 14, SLOT_FILL, SLOT_B);
-			hits.add(new Hit(HKind.GROUP_ADD, cx, y + (size[1] - 14) / 2, 34, 14, null, -1, null, holder));
+			hits.add(hit(HKind.GROUP_ADD, cx, y + (size[1] - 14) / 2, 34, 14, null, -1, null, holder, null));
 			cx += 34;
 		}
-		if (dragging && pressed != null && pressed.isCond()) {
+		if (draggingCond()) {
 			hexBlock(g, cx + 2, y + (size[1] - 12) / 2, 14, 12, SLOT_FILL, SLOT_B);
 			g.text(font, "+", cx + 6, y + (size[1] - 8) / 2, TEXT, false);
-			hits.add(new Hit(HKind.GROUP_ADD, cx + 2, y + (size[1] - 12) / 2, 14, 12, null, -1, null, holder));
+			hits.add(hit(HKind.GROUP_ADD, cx + 2, y + (size[1] - 12) / 2, 14, 12, null, -1, null, holder, null));
 		}
 	}
 
@@ -804,10 +861,7 @@ public final class BlockEditorScreen extends Screen {
 		}
 		Hit best = null;
 		for (Hit h : hits) {
-			if (h.kind() == HKind.BRANCH_DROP || h.kind() == HKind.SEND_DROP || h.kind() == HKind.EMPTY_CANVAS) {
-				continue;
-			}
-			if (h.contains(mx, my, 0) && (best == null || h.w() * h.h() <= best.w() * best.h())) {
+			if (!h.isZone() && h.contains(mx, my, 0) && (best == null || h.w() * h.h() <= best.w() * best.h())) {
 				best = h;
 			}
 		}
@@ -816,54 +870,53 @@ public final class BlockEditorScreen extends Screen {
 
 	@Override
 	public boolean mouseClicked(MouseButtonEvent e, boolean doubleClick) {
-		if (super.mouseClicked(e, doubleClick)) {
-			return true;
-		}
 		double mx = e.x();
 		double my = e.y();
 		pressButton = e.button();
 		PalItem p = paletteAt(mx, my);
-		if (p != null && !p.header() && e.button() == 0) {
-			pressed = p.payload();
-			pressedHit = null;
-			pressX = mx;
-			pressY = my;
-			dragging = false;
+		if (p != null && !p.header()) {
+			if (e.button() == 0) {
+				pressed = p.payload();
+				pressedHit = null;
+				pressX = mx;
+				pressY = my;
+				dragging = false;
+			}
 			return true;
 		}
 		Hit h = hitAt(mx, my);
 		if (h != null) {
 			if (e.button() == 1) {
 				deleteAt(h);
-				return true;
+			} else if (e.button() == 0) {
+				pressedHit = h;
+				pressed = null;
+				pressX = mx;
+				pressY = my;
+				dragging = false;
 			}
-			pressedHit = h;
-			pressed = null;
-			pressX = mx;
-			pressY = my;
-			dragging = false;
 			return true;
 		}
-		return false;
+		return super.mouseClicked(e, doubleClick);
 	}
 
 	@Override
 	public boolean mouseDragged(MouseButtonEvent e, double dx, double dy) {
-		if (pressButton != 0) {
-			return super.mouseDragged(e, dx, dy);
-		}
-		if (!dragging && (pressed != null || pressedHit != null)
-				&& Math.abs(e.x() - pressX) + Math.abs(e.y() - pressY) > 4) {
-			if (pressed == null && pressedHit != null) {
-				pressed = pickUp(pressedHit);
+		if (pressButton == 0 && (pressed != null || pressedHit != null)) {
+			if (!dragging && Math.abs(e.x() - pressX) + Math.abs(e.y() - pressY) > 3) {
+				if (pressed == null) {
+					pressed = pickUp(pressedHit);
+				}
+				dragging = pressed != null;
 			}
-			dragging = pressed != null;
+			return true;
 		}
-		return dragging || super.mouseDragged(e, dx, dy);
+		return super.mouseDragged(e, dx, dy);
 	}
 
 	@Override
 	public boolean mouseReleased(MouseButtonEvent e) {
+		boolean handled = pressed != null || pressedHit != null;
 		double mx = e.x();
 		double my = e.y();
 		if (dragging && pressed != null) {
@@ -875,14 +928,15 @@ public final class BlockEditorScreen extends Screen {
 				restore.run();
 			}
 			restore = null;
-			mutated();
+			recompile();
 		} else if (pressedHit != null && e.button() == 0) {
-			click(pressedHit);
+			click(pressedHit, mx);
 		}
 		pressed = null;
 		pressedHit = null;
 		dragging = false;
-		return super.mouseReleased(e);
+		pressButton = -1;
+		return handled || super.mouseReleased(e);
 	}
 
 	@Override
@@ -913,23 +967,32 @@ public final class BlockEditorScreen extends Screen {
 
 	// ---- drag and drop ----
 
-	/** Removes the picked block from the program and remembers how to put it back. */
 	private Payload pickUp(Hit h) {
 		switch (h.kind()) {
-			case SEND -> {
+			case SEND, CHIP -> {
 				pushUndo();
 				Branch b = h.branch();
+				int bi = rule.branches.indexOf(b);
 				int idx = h.index();
 				Send s = b.sends.remove(idx);
-				restore = () -> b.sends.add(Math.min(idx, b.sends.size()), s);
+				boolean removedBlock = Branch.DO.equals(b.type) && b.sends.isEmpty();
+				if (removedBlock) {
+					rule.branches.remove(b);
+				}
+				restore = () -> {
+					if (removedBlock) {
+						rule.branches.add(Math.min(bi, rule.branches.size()), b);
+					}
+					b.sends.add(Math.min(idx, b.sends.size()), s);
+				};
 				return new Payload(PKind.MOVE_SEND, s, "send", SEND);
 			}
-			case BRANCH -> {
+			case BRANCH, BRANCH_LABEL -> {
 				pushUndo();
-				int idx = h.index();
+				int idx = rule.branches.indexOf(h.branch());
 				Branch b = rule.branches.remove(idx);
 				restore = () -> rule.branches.add(Math.min(idx, rule.branches.size()), b);
-				return new Payload(PKind.MOVE_BRANCH, b, b.when == null ? "else" : "if", CTRL);
+				return new Payload(PKind.MOVE_BRANCH, b, b.type.replace('_', ' '), CTRL);
 			}
 			case COND -> {
 				pushUndo();
@@ -952,23 +1015,27 @@ public final class BlockEditorScreen extends Screen {
 		}
 	}
 
+	private Hit nearestBranchDrop(double my, double max) {
+		Hit best = null;
+		double bestD = max;
+		for (Hit h : hits) {
+			if (h.kind() == HKind.BRANCH_DROP) {
+				double d = Math.abs(my - (h.y() + h.h() / 2.0));
+				if (d < bestD) {
+					bestD = d;
+					best = h;
+				}
+			}
+		}
+		return best;
+	}
+
 	private Hit findDrop(Payload p, double mx, double my) {
 		if (mx < canvasX || my < top || my > bottom) {
 			return null;
 		}
 		if (p.isBranch()) {
-			Hit best = null;
-			double bestD = 60;
-			for (Hit h : hits) {
-				if (h.kind() == HKind.BRANCH_DROP) {
-					double d = Math.abs(my - (h.y() + h.h() / 2.0));
-					if (d < bestD) {
-						bestD = d;
-						best = h;
-					}
-				}
-			}
-			return best;
+			return nearestBranchDrop(my, 80);
 		}
 		if (p.isSend()) {
 			for (Hit h : hits) {
@@ -978,25 +1045,24 @@ public final class BlockEditorScreen extends Screen {
 			}
 			for (Hit h : hits) {
 				if (h.kind() == HKind.SEND && h.contains(mx, my, 0)) {
-					return new Hit(HKind.SEND_DROP, h.x(), h.y() + h.h() - 2, h.w(), 4, h.branch(), h.index() + 1, null, null);
+					return hit(HKind.SEND_DROP, h.x(), h.y() + h.h() - 2, h.w(), 4, h.branch(), h.index() + 1, null, null, null);
 				}
 			}
 			for (Hit h : hits) {
 				if (h.kind() == HKind.BRANCH && h.contains(mx, my, 0)) {
-					return new Hit(HKind.SEND_DROP, h.x(), h.y() + h.h(), h.w(), 4, h.branch(), h.branch().sends.size(), null, null);
+					return hit(HKind.SEND_DROP, h.x(), h.y() + h.h(), h.w(), 4, h.branch(), h.branch().sends.size(), null, null, null);
 				}
 			}
 			for (Hit h : hits) {
-				if (h.kind() == HKind.EMPTY_CANVAS && h.contains(mx, my, 20)) {
+				if (h.kind() == HKind.EMPTY_CANVAS && h.contains(mx, my, 30)) {
 					return h;
 				}
 			}
-			return null;
+			return nearestBranchDrop(my, 40);
 		}
-		// conditions: the smallest slot/condition under the mouse, a group's + slot, or a branch header
 		Hit best = null;
 		for (Hit h : hits) {
-			if ((h.kind() == HKind.SLOT || h.kind() == HKind.COND || h.kind() == HKind.GROUP_ADD) && h.contains(mx, my, 1)) {
+			if ((h.kind() == HKind.SLOT || h.kind() == HKind.COND || h.kind() == HKind.GROUP_ADD) && h.contains(mx, my, 2)) {
 				if (p.kind() == PKind.MOVE_COND && h.holder() != null && h.holder().get() == p.obj()) {
 					continue;
 				}
@@ -1033,15 +1099,14 @@ public final class BlockEditorScreen extends Screen {
 		};
 	}
 
-	/** A sensible starting comparison for a value: booleans "is true", numbers "< now", others "= now". */
+	/** A starting comparison for a value: booleans "is true", numbers "&lt; now", others "= now". */
 	private Condition compareFor(Operand left) {
 		Operand l = Json.copy(left, Operand.class);
-		Map<String, ValueType> payloadTypes = triggerValues();
 		Map<String, ValueType> varTypes = new LinkedHashMap<>();
 		for (UserVariable v : rt.config().variables) {
 			varTypes.put(v.name, ValueType.parse(v.type));
 		}
-		ValueType t = rt.engine.compiler().typeOf(l, payloadTypes, varTypes);
+		ValueType t = rt.engine.compiler().typeOf(l, triggerValues(), varTypes);
 		Value now = Value.NONE;
 		if (l.signal != null) {
 			SignalRef ref = SignalRef.parse(l.signal);
@@ -1059,44 +1124,32 @@ public final class BlockEditorScreen extends Screen {
 	}
 
 	private void drop(Payload p, Hit target) {
-		if (p.kind() != PKind.MOVE_BRANCH && p.kind() != PKind.MOVE_SEND && p.kind() != PKind.MOVE_COND) {
+		if (!p.moving()) {
 			pushUndo();
 		}
 		if (rule.branches == null) {
 			rule.branches = new ArrayList<>();
 		}
 		if (p.isBranch()) {
-			Branch b = p.kind() == PKind.MOVE_BRANCH ? (Branch) p.obj()
-					: p.kind() == PKind.ELSE ? Branch.of(null) : Branch.of(slot());
-			int idx = Math.min(target.index(), rule.branches.size());
-			boolean hasElse = !rule.branches.isEmpty() && rule.branches.get(rule.branches.size() - 1).when == null;
-			if (b.when == null) {
-				if (hasElse) {
-					ClientRuntime.warn("There is already an 'else' (or 'always') block.");
-					if (restore != null) {
-						restore.run();
-					}
-					return;
-				}
-				idx = rule.branches.size();
-			} else if (hasElse && idx >= rule.branches.size()) {
-				idx = rule.branches.size() - 1;
-			}
-			rule.branches.add(idx, b);
-			if (p.kind() == PKind.IF && rule.branches.size() == 2 && rule.branches.get(1).when == null && rule.branches.get(1).sends.isEmpty()) {
-				rule.branches.remove(1);
-			}
+			Branch b = switch (p.kind()) {
+				case MOVE_BRANCH -> (Branch) p.obj();
+				case ELSE -> Branch.typed(Branch.ELSE, null);
+				case ELSE_IF -> Branch.typed(Branch.ELSE_IF, slot());
+				default -> Branch.typed(Branch.IF, slot());
+			};
+			rule.branches.add(Math.min(Math.max(0, target.index()), rule.branches.size()), b);
 			return;
 		}
 		if (p.isSend()) {
 			Send s = p.kind() == PKind.MOVE_SEND ? (Send) p.obj() : newSend();
-			if (target.kind() == HKind.EMPTY_CANVAS) {
-				rule.branches.add(Branch.of(null, s));
-				return;
+			if (target.kind() == HKind.EMPTY_CANVAS || target.kind() == HKind.BRANCH_DROP) {
+				int idx = target.kind() == HKind.EMPTY_CANVAS ? rule.branches.size() : target.index();
+				rule.branches.add(Math.min(idx, rule.branches.size()), Branch.typed(Branch.DO, null, s));
+			} else {
+				Branch b = target.branch();
+				b.sends.add(Math.min(target.index(), b.sends.size()), s);
 			}
-			Branch b = target.branch();
-			b.sends.add(Math.min(target.index(), b.sends.size()), s);
-			if (p.kind() == PKind.SEND) {
+			if (p.kind() == PKind.SEND && !selfTest) {
 				minecraft.gui.setScreen(RuleEditScreen.popup(this, rule, RuleEditScreen.Section.SEND, s));
 			}
 			return;
@@ -1128,18 +1181,15 @@ public final class BlockEditorScreen extends Screen {
 			}
 			case BRANCH -> {
 				Branch b = target.branch();
-				if (b.when == null) {
+				if (b.conditional()) {
+					b.when = isSlot(b.when) ? c : Condition.group("all", b.when, c);
+				} else if (Branch.ELSE.equals(b.type)) {
+					b.type = Branch.ELSE_IF;
 					b.when = c;
-				} else {
-					b.when = Condition.group("all", b.when, c);
 				}
 			}
 			default -> {
 			}
-		}
-		if (p.kind() == PKind.COMPARE && ((Operand) p.obj()).signal == null && ((Operand) p.obj()).var == null
-				&& ((Operand) p.obj()).payload == null) {
-			minecraft.gui.setScreen(RuleEditScreen.popup(this, rule, RuleEditScreen.Section.COMPARE, c));
 		}
 	}
 
@@ -1153,21 +1203,33 @@ public final class BlockEditorScreen extends Screen {
 		return s;
 	}
 
-	private void click(Hit h) {
+	private void click(Hit h, double mx) {
 		switch (h.kind()) {
 			case HAT -> minecraft.gui.setScreen(RuleEditScreen.popup(this, rule, RuleEditScreen.Section.TRIGGER, null));
+			case CHIP -> {
+				pushUndo();
+				if (!h.send().notifiers.remove(h.id())) {
+					h.send().notifiers.add(h.id());
+				}
+				recompile();
+			}
 			case SEND -> {
 				pushUndo();
 				minecraft.gui.setScreen(RuleEditScreen.popup(this, rule, RuleEditScreen.Section.SEND, h.send()));
 			}
+			case BRANCH_LABEL -> {
+				pushUndo();
+				Branch b = h.branch();
+				b.type = Branch.IF.equals(b.type) ? Branch.ELSE_IF : Branch.IF;
+				recompile();
+			}
 			case COND -> {
 				Condition c = h.holder().get();
+				pushUndo();
 				if (c.isGroup()) {
-					pushUndo();
 					c.op = "all".equals(c.op) ? "any" : "any".equals(c.op) ? "all" : c.op;
-					mutated();
+					recompile();
 				} else {
-					pushUndo();
 					minecraft.gui.setScreen(RuleEditScreen.popup(this, rule, RuleEditScreen.Section.COMPARE, c));
 				}
 			}
@@ -1175,16 +1237,15 @@ public final class BlockEditorScreen extends Screen {
 				pushUndo();
 				Condition c = h.holder().get();
 				c.op = "all".equals(c.op) ? "any" : "any".equals(c.op) ? "all" : c.op;
-				mutated();
+				recompile();
 			}
 			case SLOT -> {
 				Holder holder = h.holder();
-				RuleEditScreen helper = RuleEditScreen.popup(this, rule, RuleEditScreen.Section.COMPARE, slot());
-				helper.pickOperandFrom(this, op -> {
+				RuleEditScreen.popup(this, rule, RuleEditScreen.Section.COMPARE, slot()).pickOperandFrom(this, op -> {
 					pushUndo();
 					Condition c = compareFor(op);
 					holder.set(c);
-					mutated();
+					recompile();
 					minecraft.gui.setScreen(RuleEditScreen.popup(this, rule, RuleEditScreen.Section.COMPARE, c));
 				});
 			}
@@ -1195,11 +1256,11 @@ public final class BlockEditorScreen extends Screen {
 
 	private void deleteAt(Hit h) {
 		switch (h.kind()) {
-			case SEND -> {
+			case SEND, CHIP -> {
 				pushUndo();
 				h.branch().sends.remove(h.send());
 			}
-			case BRANCH -> {
+			case BRANCH, BRANCH_LABEL -> {
 				pushUndo();
 				rule.branches.remove(h.branch());
 			}
@@ -1217,7 +1278,7 @@ public final class BlockEditorScreen extends Screen {
 				return;
 			}
 		}
-		mutated();
+		recompile();
 	}
 
 	// ---- actions ----
@@ -1226,7 +1287,7 @@ public final class BlockEditorScreen extends Screen {
 		if (rt.engine.testFire(rule)) {
 			ClientRuntime.info("Test of '" + rule.name + "' sent; see the History tab for the result.");
 		} else {
-			ClientRuntime.warn("Nothing to send: no block matches the current values, or no notifier is selected.");
+			ClientRuntime.warn("Nothing to send: no block runs with the current values, or no notifier is selected.");
 		}
 	}
 
@@ -1234,6 +1295,7 @@ public final class BlockEditorScreen extends Screen {
 		if (rule.name == null || rule.name.isBlank()) {
 			rule.name = isNew ? "New event" : originalId;
 		}
+		cleanup();
 		if (rule.hasBranches()) {
 			rule.message = MessageTemplate.of("", "");
 			rule.targets = new ArrayList<>();
@@ -1254,8 +1316,110 @@ public final class BlockEditorScreen extends Screen {
 		onClose();
 	}
 
+	// ---- dev self-test: simulated mouse input (see DevScreenshots, -Pdevshots=blocks) ----
+
+	public static void registerSelfTest() {
+		selfTest = true;
+		BlockEditorScreen[] ed = new BlockEditorScreen[1];
+		DevScreenshots.add("bt-0-open", () -> {
+			Rule r = new Rule();
+			r.name = "Drag test";
+			r.trigger = Trigger.event("custom");
+			r.branches = new ArrayList<>();
+			ed[0] = new BlockEditorScreen(null, r, true);
+			return ed[0];
+		});
+		DevScreenshots.addAction("bt-1-send-top", () -> ed[0].simulateDragPalette("send message", ed[0].canvasX + 60, ed[0].top + 50));
+		DevScreenshots.addAction("bt-2-if", () -> ed[0].simulateDragPalette("if … then", ed[0].canvasX + 60, ed[0].top + 80));
+		DevScreenshots.addAction("bt-3-value-into-slot", () -> {
+			Hit slot = ed[0].first(HKind.SLOT);
+			ed[0].simulateDragPalette("player.health", slot.x() + slot.w() / 2.0, slot.y() + slot.h() / 2.0);
+		});
+		DevScreenshots.addAction("bt-4-send-into-if", () -> {
+			Hit zone = ed[0].firstInsideIf();
+			ed[0].simulateDragPalette("send message", zone.x() + 20, zone.y() + zone.h() / 2.0);
+		});
+		DevScreenshots.addAction("bt-5-chip", () -> {
+			Hit chip = ed[0].first(HKind.CHIP);
+			if (chip != null) {
+				ed[0].simulateClick(chip.x() + 3, chip.y() + 3);
+			}
+		});
+		DevScreenshots.addAction("bt-6-and", () -> {
+			Hit cond = ed[0].first(HKind.COND);
+			ed[0].simulateDragPalette("… and …", cond.x() + 4, cond.y() + cond.h() / 2.0);
+		});
+		DevScreenshots.addAction("bt-7-else", () -> {
+			Hit lastDrop = ed[0].last(HKind.BRANCH_DROP);
+			ed[0].simulateDragPalette("else", lastDrop.x() + 30, lastDrop.y() + lastDrop.h() / 2.0);
+		});
+		DevScreenshots.addAction("bt-8-move-send-down", () -> {
+			Hit send = ed[0].first(HKind.SEND);
+			Hit lastDrop = ed[0].last(HKind.BRANCH_DROP);
+			ed[0].simulateDrag(send.x() + 5, send.y() + 5, lastDrop.x() + 30, lastDrop.y() + lastDrop.h() / 2.0);
+		});
+	}
+
+	private Hit first(HKind k) {
+		for (Hit h : hits) {
+			if (h.kind() == k) {
+				return h;
+			}
+		}
+		return null;
+	}
+
+	private Hit last(HKind k) {
+		Hit out = null;
+		for (Hit h : hits) {
+			if (h.kind() == k) {
+				out = h;
+			}
+		}
+		return out;
+	}
+
+	private Hit firstInsideIf() {
+		for (Hit h : hits) {
+			if (h.kind() == HKind.SEND_DROP && h.branch() != null && h.branch().conditional()) {
+				return h;
+			}
+		}
+		return null;
+	}
+
+	private void simulateDragPalette(String label, double toX, double toY) {
+		int y0 = top + 4 - (int) palScroll;
+		for (int i = 0; i < palette.size(); i++) {
+			if (palette.get(i).label().equals(label) && !palette.get(i).header()) {
+				simulateDrag(10, y0 + palPos.get(i)[0] + 5, toX, toY);
+				return;
+			}
+		}
+		Sculkwire.LOG.warn("blocktest: no palette item '{}'", label);
+	}
+
+	private void simulateDrag(double x1, double y1, double x2, double y2) {
+		MouseButtonInfo left = new MouseButtonInfo(0, 0);
+		mouseClicked(new MouseButtonEvent(x1, y1, left), false);
+		for (int k = 1; k <= 6; k++) {
+			double x = x1 + (x2 - x1) * k / 6;
+			double y = y1 + (y2 - y1) * k / 6;
+			mouseDragged(new MouseButtonEvent(x, y, left), (x2 - x1) / 6, (y2 - y1) / 6);
+		}
+		mouseReleased(new MouseButtonEvent(x2, y2, left));
+		Sculkwire.LOG.info("blocktest: {}", Json.COMPACT.toJson(rule.branches));
+	}
+
+	private void simulateClick(double x, double y) {
+		MouseButtonInfo left = new MouseButtonInfo(0, 0);
+		mouseClicked(new MouseButtonEvent(x, y, left), false);
+		mouseReleased(new MouseButtonEvent(x, y, left));
+		Sculkwire.LOG.info("blocktest: {}", Json.COMPACT.toJson(rule.branches));
+	}
+
 	@SuppressWarnings("unused")
-	private static String typeName(ValueType t) {
-		return t.id();
+	private static Minecraft mc() {
+		return Minecraft.getInstance();
 	}
 }

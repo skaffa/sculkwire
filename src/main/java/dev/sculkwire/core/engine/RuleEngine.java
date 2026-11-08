@@ -287,33 +287,69 @@ public final class RuleEngine {
 		return true;
 	}
 
-	/** The targets to send to: the rule's own, or those of the first matching branch (null = none matched). */
+	/** The targets to send to: the rule's own, or those of every script block that runs (null = none ran). */
 	private List<CompiledRule.CompiledTarget> select(CompiledRule cr, EvalContext ctx) {
 		if (cr.branches.isEmpty()) {
 			return cr.targets;
 		}
-		for (CompiledRule.CompiledBranch b : cr.branches) {
-			if (b.when() == null || b.when().test(ctx)) {
-				return b.targets();
-			}
+		List<Integer> ran = runningBlocks(cr, ctx);
+		if (ran.isEmpty()) {
+			return null;
 		}
-		return null;
+		List<CompiledRule.CompiledTarget> out = new ArrayList<>();
+		for (int i : ran) {
+			out.addAll(cr.branches.get(i).targets());
+		}
+		return out;
 	}
 
-	/** Index of the branch that matches the current or sample values, or -1 (for the block editor). */
-	public int previewBranch(CompiledRule cr) {
-		EvalContext ctx = previewContext(cr, new RuleState());
+	/** Indexes of the script blocks that run for these values. */
+	private static List<Integer> runningBlocks(CompiledRule cr, EvalContext ctx) {
+		List<Integer> ran = new ArrayList<>();
+		boolean chainMatched = false;
 		for (int i = 0; i < cr.branches.size(); i++) {
 			CompiledRule.CompiledBranch b = cr.branches.get(i);
-			try {
-				if (b.when() == null || b.when().test(ctx)) {
-					return i;
+			switch (b.type()) {
+				case "if" -> {
+					chainMatched = b.when() != null && b.when().test(ctx);
+					if (chainMatched) {
+						ran.add(i);
+					}
 				}
-			} catch (RuntimeException e) {
-				return -1;
+				case "else_if" -> {
+					if (!chainMatched && b.when() != null && b.when().test(ctx)) {
+						chainMatched = true;
+						ran.add(i);
+					}
+				}
+				case "else" -> {
+					if (!chainMatched) {
+						ran.add(i);
+					}
+					chainMatched = true;
+				}
+				default -> {
+					ran.add(i);
+					chainMatched = true;
+				}
 			}
 		}
-		return -1;
+		return ran;
+	}
+
+	/** Script blocks that would run with the current or sample values (for the block editor). */
+	public List<Integer> previewBlocks(CompiledRule cr) {
+		try {
+			return runningBlocks(cr, previewContext(cr, new RuleState()));
+		} catch (RuntimeException e) {
+			return List.of();
+		}
+	}
+
+	/** First block that would run, or -1. */
+	public int previewBranch(CompiledRule cr) {
+		List<Integer> l = previewBlocks(cr);
+		return l.isEmpty() ? -1 : l.get(0);
 	}
 
 	/** Test-sends an unsaved rule (as edited in the UI) with current or sample values. */

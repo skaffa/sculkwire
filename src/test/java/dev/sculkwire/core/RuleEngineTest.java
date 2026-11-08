@@ -436,6 +436,35 @@ class RuleEngineTest {
 	}
 
 	@Test
+	void sendBlocksAndSeveralChainsAllRun() {
+		Rule r = new Rule();
+		r.name = "script";
+		r.trigger = Trigger.event("custom");
+		Condition low = Condition.compare(Operand.signal("player.health"), "lt", Operand.value(6));
+		Condition night = Condition.compare(Operand.signal("world.is_night"), "is_true");
+		r.branches = new java.util.ArrayList<>(List.of(
+				dev.sculkwire.core.model.Branch.typed("do", null, send("first")),
+				dev.sculkwire.core.model.Branch.typed("if", low, send("low")),
+				dev.sculkwire.core.model.Branch.typed("else", null, send("fine")),
+				dev.sculkwire.core.model.Branch.typed("if", night, send("night")),
+				dev.sculkwire.core.model.Branch.typed("do", null, send("last"))));
+		TestWorld w = new TestWorld().set("player.health", 4).set("world.is_night", false).add(r).join();
+		assertTrue(w.engine.rule(r.id).errors.isEmpty(), w.engine.rule(r.id).errors.toString());
+		w.engine.post("custom", Map.of());
+		List<String> titles = w.sent.stream().map(d -> d.notification().title(dev.sculkwire.core.template.OutputContext.PLAIN)).toList();
+		assertEquals(List.of("first", "low", "last"), titles);
+		assertEquals(List.of(0, 1, 4), w.engine.previewBlocks(w.engine.rule(r.id)));
+
+		Rule bad = new Rule();
+		bad.name = "orphan else";
+		bad.trigger = Trigger.event("custom");
+		bad.branches = new java.util.ArrayList<>(List.of(dev.sculkwire.core.model.Branch.typed("do", null, send("a")),
+				dev.sculkwire.core.model.Branch.typed("else", null, send("b"))));
+		w.add(bad);
+		assertFalse(w.engine.rule(bad.id).errors.isEmpty());
+	}
+
+	@Test
 	void stateRulesOnlyRunInAWorld() {
 		Rule every = new Rule();
 		every.name = "every";

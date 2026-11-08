@@ -33,8 +33,8 @@ public final class CompiledRule {
 		}
 	}
 
-	/** A compiled branch: {@code when} is null for else. */
-	public record CompiledBranch(Cond when, List<CompiledTarget> targets) {
+	/** A compiled script block; {@code type} is if, else_if, else or do (see {@code Branch}). */
+	public record CompiledBranch(String type, Cond when, List<CompiledTarget> targets) {
 	}
 
 	public final Rule rule;
