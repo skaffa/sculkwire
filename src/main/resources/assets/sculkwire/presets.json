@@ -1,0 +1,234 @@
+[
+	{
+		"id": "mentioned",
+		"name": "Mentioned in chat",
+		"description": "Someone says your name in chat.",
+		"rule": {
+			"name": "Mentioned in chat",
+			"trigger": {"kind": "event", "event": "chat.message", "params": {"mode": "mentions_me", "source": "both", "ignore_own": true}},
+			"throttle": {"cooldown_seconds": 10},
+			"message": {"title": "{msg.sender|default:'Chat'} mentioned you", "body": "{msg.text}", "priority": "high", "tags": ["speech_balloon"], "click": ""}
+		}
+	},
+	{
+		"id": "friend-joined",
+		"name": "Friend joined",
+		"description": "A player from your friends list joins the server (add names to the 'friends' variable).",
+		"variables": [{"name": "friends", "type": "LIST", "value": []}],
+		"rule": {
+			"name": "Friend joined",
+			"trigger": {"kind": "event", "event": "server.player_joined", "params": {"names": ["{friends}"]}},
+			"message": {"title": "{other.name} is online", "body": "{other.name} joined {server.address|default:'the server'}", "priority": "default", "tags": ["wave"], "click": ""}
+		}
+	},
+	{
+		"id": "low-health",
+		"name": "Low health",
+		"description": "Health drops below 3 hearts (re-arms above 5 hearts).",
+		"rule": {
+			"name": "Low health",
+			"trigger": {
+				"kind": "condition", "mode": "on_enter", "check_every_ticks": 2,
+				"condition": {"type": "compare", "left": {"signal": "player.health"}, "op": "lt", "right": {"value": 6}},
+				"rearm": {"type": "compare", "left": {"signal": "player.health"}, "op": "gte", "right": {"value": 10}}
+			},
+			"throttle": {"cooldown_seconds": 30},
+			"message": {"title": "Low health!", "body": "{player.health|hearts} ❤ left at {player.block_pos} ({player.dimension|pretty})", "priority": "high", "tags": ["warning"], "click": ""}
+		}
+	},
+	{
+		"id": "low-health-afk",
+		"name": "Low health while AFK",
+		"description": "Health drops below 3 hearts while you have been idle for a minute.",
+		"rule": {
+			"name": "Low health while AFK",
+			"trigger": {
+				"kind": "condition", "mode": "on_enter", "check_every_ticks": 2,
+				"condition": {"type": "compare", "left": {"signal": "player.health"}, "op": "lt", "right": {"value": 6}},
+				"rearm": {"type": "compare", "left": {"signal": "player.health"}, "op": "gte", "right": {"value": 10}}
+			},
+			"conditions": {"type": "compare", "left": {"signal": "session.afk_seconds"}, "op": "gte", "right": {"value": 60}},
+			"throttle": {"cooldown_seconds": 20},
+			"message": {"title": "You are taking damage while AFK!", "body": "{player.health|hearts} ❤ left at {player.block_pos} ({player.dimension|pretty})", "priority": "urgent", "tags": ["rotating_light"], "click": ""}
+		}
+	},
+	{
+		"id": "died",
+		"name": "Died",
+		"description": "You died; includes the death message and coordinates.",
+		"rule": {
+			"name": "Died",
+			"trigger": {"kind": "event", "event": "player.death", "params": {}},
+			"message": {"title": "You died", "body": "{death.message}\nat {death.x|int} {death.y|int} {death.z|int} in {death.dimension|pretty}", "priority": "high", "tags": ["skull"], "click": ""}
+		}
+	},
+	{
+		"id": "totem-used",
+		"name": "Totem popped",
+		"description": "A Totem of Undying saved you.",
+		"rule": {
+			"name": "Totem popped",
+			"trigger": {"kind": "event", "event": "player.totem_used", "params": {}},
+			"message": {"title": "Totem of Undying used!", "body": "Health now {health.after|hearts} ❤ at {player.block_pos}", "priority": "urgent", "tags": ["warning"], "click": ""}
+		}
+	},
+	{
+		"id": "disconnected",
+		"name": "Disconnected or kicked",
+		"description": "You lost the connection to a server.",
+		"rule": {
+			"name": "Disconnected",
+			"trigger": {"kind": "event", "event": "connection.disconnected", "params": {}},
+			"scope": {"singleplayer": false, "multiplayer": true, "servers": [], "worlds": [], "dimensions": []},
+			"message": {"title": "Disconnected from {server.address|default:'the server'}", "body": "{reason}\nPlayed {session.playtime_seconds|duration}", "priority": "high", "tags": ["electric_plug"], "click": ""}
+		}
+	},
+	{
+		"id": "night-falls",
+		"name": "Night falls",
+		"description": "It becomes night (monsters start spawning).",
+		"rule": {
+			"name": "Night falls",
+			"trigger": {
+				"kind": "condition", "mode": "on_enter", "check_every_ticks": 20,
+				"condition": {"type": "compare", "left": {"signal": "world.is_night"}, "op": "is_true"}
+			},
+			"message": {"title": "Night has fallen", "body": "It is {world.clock} on day {world.day}", "priority": "default", "tags": ["crescent_moon"], "click": ""}
+		}
+	},
+	{
+		"id": "can-sleep",
+		"name": "Can sleep now",
+		"description": "Beds can be used.",
+		"rule": {
+			"name": "Can sleep now",
+			"trigger": {
+				"kind": "condition", "mode": "on_enter", "check_every_ticks": 20,
+				"condition": {"type": "compare", "left": {"signal": "world.can_sleep"}, "op": "is_true"}
+			},
+			"message": {"title": "You can sleep now", "body": "It is {world.clock}", "priority": "default", "tags": ["bed"], "click": ""}
+		}
+	},
+	{
+		"id": "day-breaks",
+		"name": "Day breaks",
+		"description": "The sun comes up.",
+		"rule": {
+			"name": "Day breaks",
+			"trigger": {
+				"kind": "condition", "mode": "on_enter", "check_every_ticks": 20,
+				"condition": {"type": "compare", "left": {"signal": "world.is_day"}, "op": "is_true"}
+			},
+			"message": {"title": "Good morning", "body": "Day {world.day} has started", "priority": "low", "tags": ["sunny"], "click": ""}
+		}
+	},
+	{
+		"id": "thunderstorm",
+		"name": "Thunderstorm started",
+		"description": "The weather turns to thunder.",
+		"rule": {
+			"name": "Thunderstorm started",
+			"trigger": {"kind": "change", "signal": "world.weather", "to": "thunder", "check_every_ticks": 20},
+			"message": {"title": "A thunderstorm started", "body": "Weather changed from {old} to {new}", "priority": "default", "tags": ["zap"], "click": ""}
+		}
+	},
+	{
+		"id": "hunger-low",
+		"name": "Hunger low",
+		"description": "Your hunger bar drops to 3 drumsticks (re-arms at 7).",
+		"rule": {
+			"name": "Hunger low",
+			"trigger": {
+				"kind": "condition", "mode": "on_enter", "check_every_ticks": 20,
+				"condition": {"type": "compare", "left": {"signal": "player.food"}, "op": "lte", "right": {"value": 6}},
+				"rearm": {"type": "compare", "left": {"signal": "player.food"}, "op": "gte", "right": {"value": 14}}
+			},
+			"message": {"title": "You are hungry", "body": "Hunger {player.food}/20", "priority": "default", "tags": ["meat_on_bone"], "click": ""}
+		}
+	},
+	{
+		"id": "inventory-full",
+		"name": "Inventory full",
+		"description": "Your main inventory has no free slot for 2 seconds.",
+		"rule": {
+			"name": "Inventory full",
+			"trigger": {
+				"kind": "condition", "mode": "on_enter", "check_every_ticks": 10, "for_seconds": 2,
+				"condition": {"type": "compare", "left": {"signal": "player.inventory.full"}, "op": "is_true"}
+			},
+			"throttle": {"cooldown_seconds": 60},
+			"message": {"title": "Inventory full", "body": "No free slots left", "priority": "default", "tags": ["package"], "click": ""}
+		}
+	},
+	{
+		"id": "tool-breaking",
+		"name": "Tool about to break",
+		"description": "The item in your hand has 10% durability or less.",
+		"rule": {
+			"name": "Tool about to break",
+			"trigger": {
+				"kind": "condition", "mode": "on_enter", "check_every_ticks": 10,
+				"condition": {"type": "compare", "left": {"signal": "player.held.durability_percent"}, "op": "lte", "right": {"value": 10}},
+				"rearm": {"type": "compare", "left": {"signal": "player.held.durability_percent"}, "op": "gt", "right": {"value": 20}}
+			},
+			"message": {"title": "Your {player.held.item|pretty} is about to break", "body": "{player.held.durability} uses left", "priority": "default", "tags": ["hammer"], "click": ""}
+		}
+	},
+	{
+		"id": "player-in-view",
+		"name": "Player came into view",
+		"description": "Another player enters your render distance.",
+		"rule": {
+			"name": "Player came into view",
+			"trigger": {"kind": "event", "event": "entity.player_appeared", "params": {}},
+			"throttle": {"cooldown_seconds": 30},
+			"message": {"title": "{other.name} came into view", "body": "{other.distance|int} blocks away", "priority": "default", "tags": ["eyes"], "click": ""}
+		}
+	},
+	{
+		"id": "restart-warning",
+		"name": "Server restart warning",
+		"description": "A system message mentions a restart.",
+		"rule": {
+			"name": "Server restart warning",
+			"trigger": {"kind": "event", "event": "chat.message", "params": {"source": "system", "mode": "regex", "pattern": "restart(ing)?"}},
+			"throttle": {"cooldown_seconds": 60},
+			"message": {"title": "Server restart warning", "body": "{msg.text}", "priority": "high", "tags": ["arrows_counterclockwise"], "click": ""}
+		}
+	},
+	{
+		"id": "entered-nether",
+		"name": "Entered the Nether",
+		"description": "You went through a Nether portal.",
+		"rule": {
+			"name": "Entered the Nether",
+			"trigger": {"kind": "event", "event": "player.dimension_changed", "params": {"to": ["minecraft:the_nether"]}},
+			"message": {"title": "Entered the Nether", "body": "From {old|pretty} at {player.block_pos}", "priority": "low", "tags": ["fire"], "click": ""}
+		}
+	},
+	{
+		"id": "entered-end",
+		"name": "Entered the End",
+		"description": "You went through an End portal.",
+		"rule": {
+			"name": "Entered the End",
+			"trigger": {"kind": "event", "event": "player.dimension_changed", "params": {"to": ["minecraft:the_end"]}},
+			"message": {"title": "Entered the End", "body": "Good luck with the dragon", "priority": "default", "tags": ["dragon"], "click": ""}
+		}
+	},
+	{
+		"id": "hostiles-afk",
+		"name": "Mobs near you while AFK",
+		"description": "3 or more hostile mobs within 8 blocks while you are idle.",
+		"rule": {
+			"name": "Mobs near you while AFK",
+			"trigger": {
+				"kind": "condition", "mode": "on_enter", "check_every_ticks": 20,
+				"condition": {"type": "compare", "left": {"signal": "nearby.hostiles", "params": {"radius": 8}}, "op": "gte", "right": {"value": 3}}
+			},
+			"conditions": {"type": "compare", "left": {"signal": "session.afk_seconds"}, "op": "gte", "right": {"value": 60}},
+			"throttle": {"cooldown_seconds": 120},
+			"message": {"title": "Mobs around you", "body": "{nearby.hostiles(radius=8)} hostile mobs within 8 blocks", "priority": "high", "tags": ["zombie"], "click": ""}
+		}
+	}
+]
