@@ -43,3 +43,6 @@ run-server/
 
 # Sculkwire: never commit webhook URLs or tokens
 secrets.json
+
+# logs written by test runs
+logs/

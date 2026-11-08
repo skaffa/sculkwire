@@ -1,7 +1,0 @@
-[10:41:00] [sculkwire-dispatch/WARN]: Sculkwire: sending to hook failed: Notifier is disabled
-[10:41:00] [sculkwire-dispatch/WARN]: Sculkwire: sending to hook failed: HTTP 404: {}
-[10:41:00] [sculkwire-dispatch/WARN]: Sculkwire: sending to hook failed: Could not connect: refused
-[10:41:00] [sculkwire-dispatch/WARN]: Sculkwire: sending to hook failed: Could not connect: refused
-[10:41:00] [sculkwire-dispatch/WARN]: Sculkwire: sending to hook failed: Could not connect: refused
-[10:41:00] [Test worker/WARN]: Sculkwire: sending to hook failed: Queue full: dropped
-[10:41:00] [sculkwire-dispatch/WARN]: Sculkwire: sending to dc failed: HTTP 400: {}
