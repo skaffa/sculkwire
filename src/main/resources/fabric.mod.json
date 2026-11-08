@@ -9,6 +9,7 @@
 		"Claude (Anthropic)"
 	],
 	"contact": {
+		"homepage": "https://github.com/skaffa/sculkwire",
 		"sources": "https://github.com/skaffa/sculkwire",
 		"issues": "https://github.com/skaffa/sculkwire/issues"
 	},
