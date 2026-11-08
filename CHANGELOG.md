@@ -20,6 +20,9 @@ First release.
 - Limits: cooldown, hourly limit, once per session, only when alt-tabbed, quiet hours, global mute, join
   grace, and scope by server, world or dimension.
 - Templates with filters, escaped per destination (JSON, URL, header, Discord markdown, Telegram HTML).
-- In-game editor with live inspector, message preview, delivery history, 19 presets and import/export.
+- Scratch-like block editor for events: a *when* block, if / else if / else with and / or / not, send
+  blocks with their own message and notifiers, and a palette of every value with its live reading.
+- In-game editor with message preview, delivery history, 19 presets and import/export.
+- `session.actively_playing` value, to hold notifications while you are at the keyboard.
 - `/sculkwire` (`/sw`) commands, and a Configure button in Mod Menu (optional).
 - Plugin API for other mods (experimental).

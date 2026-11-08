@@ -128,20 +128,25 @@ public final class SculkwireClient implements ClientModInitializer {
 	}
 
 	private static void registerDevShots() {
-		for (int i = 0; i < 6; i++) {
+		for (int i = 0; i < 5; i++) {
 			int tab = i;
 			dev.sculkwire.client.ui.DevScreenshots.add("tab" + i, () -> dev.sculkwire.client.ui.SculkwireScreen.atTab(null, tab));
 		}
-		dev.sculkwire.client.ui.DevScreenshots.add("rule-condition", () -> {
+		dev.sculkwire.client.ui.DevScreenshots.add("blocks-preset", () -> {
 			var cfg = ClientRuntime.get().config();
-			var r = cfg.rule("low-health-afk") != null ? cfg.rule("low-health-afk").copy() : cfg.rules.get(0).copy();
-			return new dev.sculkwire.client.ui.RuleEditScreen(null, r, false);
+			var r = cfg.rule("low-health") != null ? cfg.rule("low-health").copy() : cfg.rules.get(0).copy();
+			return new dev.sculkwire.client.ui.BlockEditorScreen(null, r, false);
 		});
-		dev.sculkwire.client.ui.DevScreenshots.add("rule-event", () -> {
-			var cfg = ClientRuntime.get().config();
-			var r = cfg.rule("ev-chat") != null ? cfg.rule("ev-chat").copy() : cfg.rules.get(0).copy();
-			return new dev.sculkwire.client.ui.RuleEditScreen(null, r, false);
+		dev.sculkwire.client.ui.DevScreenshots.add("blocks-branches", () ->
+				new dev.sculkwire.client.ui.BlockEditorScreen(null, dev.sculkwire.client.ui.BlockEditorScreen.demoRule(), true));
+		dev.sculkwire.client.ui.DevScreenshots.add("popup-send", () -> {
+			var r = dev.sculkwire.client.ui.BlockEditorScreen.demoRule();
+			return dev.sculkwire.client.ui.RuleEditScreen.popup(null, r, dev.sculkwire.client.ui.RuleEditScreen.Section.SEND,
+					r.branches.get(0).sends.get(0));
 		});
+		dev.sculkwire.client.ui.DevScreenshots.add("popup-trigger", () ->
+				dev.sculkwire.client.ui.RuleEditScreen.popup(null, dev.sculkwire.client.ui.BlockEditorScreen.demoRule(),
+						dev.sculkwire.client.ui.RuleEditScreen.Section.TRIGGER, null));
 		dev.sculkwire.client.ui.DevScreenshots.add("notifier-ntfy", () -> new dev.sculkwire.client.ui.NotifierEditScreen(null,
 				dev.sculkwire.core.model.NotifierConfig.of("", "Phone", "ntfy"), true));
 		dev.sculkwire.client.ui.DevScreenshots.add("notifier-webhook", () -> new dev.sculkwire.client.ui.NotifierEditScreen(null,

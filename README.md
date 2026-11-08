@@ -29,8 +29,12 @@ singleplayer, and sends nothing to the game server.
   Conditions that are already true when you join do not fire.
 - **Variables**: use `{player.name}`, `{msg.text}`, `{player.health|hearts}` or any tracked value in
   messages and conditions, plus your own variables (for example a `friends` list).
-- **Editor in game**: `/sw`, a key binding, or the Configure button in [Mod Menu](https://modrinth.com/mod/modmenu) opens the editor. It has a live inspector of every value, a
-  preview of your message, and a delivery history. Everything is also plain JSON in `config/sculkwire/`.
+- **Block editor**: events are built from Scratch-like blocks: a *when* block, then *if / else if / else*
+  with *and / or / not*, and *send* blocks that each pick their own message and notifiers. The palette lists
+  every value with its live reading, so you can drag one straight into a condition.
+- **Editor in game**: `/sw`, a key binding, or the Configure button in [Mod Menu](https://modrinth.com/mod/modmenu)
+  opens it. It also has message previews and a delivery history. Everything is plain JSON in
+  `config/sculkwire/`.
 - **19 presets** to start from, and import/export to share events (never with your secrets).
 
 ## Getting started
@@ -40,7 +44,8 @@ singleplayer, and sends nothing to the game server.
 2. On your phone, install the ntfy app and subscribe to a topic with a long random name.
 3. In game, run `/sw` (or bind *Open Sculkwire* in Controls).
    1. Go to **Notifiers → + Add notifier → ntfy**, press **Random topic** (or type your topic), then **Save & test**.
-   2. Go to **Events → + Preset**, pick **Mentioned in chat** or **Low health**, and **Save**.
+   2. Go to **Events → + Preset**, pick **Mentioned in chat** or **Low health**, and **Save**. The block
+      editor opens so you can adjust it first.
 
 That's it. To see why an event did or did not send, look at its line on the Events tab ("last: …") or run
 `/sw status <event>`.
@@ -56,8 +61,21 @@ That's it. To see why an event did or did not send, look at its line on the Even
 
 ## How events work
 
-An event has a **trigger**, optional **conditions** ("Only if"), a **message**, and the **notifiers** to
-send to.
+An event has a **trigger** (the *when* block) and a chain of **if / else if / else** blocks. The first
+block whose condition is true runs its **send** blocks, and each send has its own message and notifiers.
+A single *always* block simply sends every time.
+
+In the block editor:
+
+- **Add blocks:** drag them from the palette.
+- **Edit a block:** click it. Click the *when* block to change the trigger, and an *and* or *or* label to
+  switch between them.
+- **Delete a block:** right-click it, or drag it back onto the palette.
+- **Undo:** Ctrl+Z.
+- **Live check:** the block that would run with the current values is marked *◀ now*.
+
+To skip notifications while you are at the keyboard, use the `session.actively_playing` value (the window
+has focus and you gave input recently) in a *not* block.
 
 | Trigger | Fires when | Example |
 |---|---|---|

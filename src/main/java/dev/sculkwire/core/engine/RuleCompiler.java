@@ -5,12 +5,14 @@ import com.google.gson.JsonElement;
 import dev.sculkwire.core.event.EventRegistry;
 import dev.sculkwire.core.event.EventSpec;
 import dev.sculkwire.core.event.PayloadVar;
+import dev.sculkwire.core.model.Branch;
 import dev.sculkwire.core.model.Condition;
 import dev.sculkwire.core.model.MessageTemplate;
 import dev.sculkwire.core.model.NotifierConfig;
 import dev.sculkwire.core.model.Operand;
 import dev.sculkwire.core.model.Rule;
 import dev.sculkwire.core.model.SculkwireConfig;
+import dev.sculkwire.core.model.Send;
 import dev.sculkwire.core.model.Target;
 import dev.sculkwire.core.model.Trigger;
 import dev.sculkwire.core.model.UserVariable;
@@ -169,6 +171,11 @@ public final class RuleCompiler {
 			cr.conditions = cond(rule.conditions, env);
 		}
 
+		if (rule.hasBranches()) {
+			compileBranches(rule, cfg, env);
+			return cr;
+		}
+
 		MessageTemplate base = rule.message == null ? MessageTemplate.of("", "") : rule.message;
 		if (isBlank(base.title) && isBlank(base.body)) {
 			cr.warnings.add("The message is empty");
@@ -204,6 +211,65 @@ public final class RuleCompiler {
 			}
 		}
 		return cr;
+	}
+
+	private void compileBranches(Rule rule, SculkwireConfig cfg, Env env) {
+		CompiledRule cr = env.cr;
+		int elses = 0;
+		boolean anyTarget = false;
+		for (int i = 0; i < rule.branches.size(); i++) {
+			Branch b = rule.branches.get(i);
+			Cond when = null;
+			if (b.when == null) {
+				elses++;
+				if (i != rule.branches.size() - 1) {
+					cr.errors.add("'else' must be the last block");
+				}
+			} else {
+				when = cond(b.when, env);
+			}
+			List<CompiledRule.CompiledTarget> targets = new ArrayList<>();
+			String label = b.when == null ? (rule.branches.size() == 1 ? "always" : "else") : i == 0 ? "if" : "else if";
+			if (b.sends == null || b.sends.isEmpty()) {
+				cr.warnings.add("The '" + label + "' block sends nothing");
+			} else {
+				for (Send s : b.sends) {
+					MessageTemplate m = MessageTemplate.of("", "").merge(s.message);
+					if (isBlank(m.title) && isBlank(m.body)) {
+						cr.warnings.add("A send block in '" + label + "' has an empty message");
+					}
+					if (s.notifiers == null || s.notifiers.isEmpty()) {
+						cr.warnings.add("A send block in '" + label + "' has no notifiers");
+						continue;
+					}
+					Template title = Template.parse(m.title);
+					Template body = Template.parse(m.body);
+					Template click = Template.parse(m.click);
+					for (Template tpl : List.of(title, body, click)) {
+						for (String p : tpl.problems(env.knownFn())) {
+							if (!cr.warnings.contains("Message: " + p)) {
+								cr.warnings.add("Message: " + p);
+							}
+						}
+					}
+					for (String n : s.notifiers) {
+						if (cfg.notifier(n) == null) {
+							cr.warnings.add("Notifier '" + n + "' does not exist");
+						}
+						anyTarget = true;
+						targets.add(new CompiledRule.CompiledTarget(n, title, body, click, Priority.parse(m.priority),
+								m.tags == null ? List.of() : List.copyOf(m.tags)));
+					}
+				}
+			}
+			cr.branches.add(new CompiledRule.CompiledBranch(when, targets));
+		}
+		if (elses > 1) {
+			cr.errors.add("Only one 'else' block is allowed");
+		}
+		if (!anyTarget) {
+			cr.warnings.add("No notifiers selected: this event will not send anything");
+		}
 	}
 
 	/** Returns the value type of an operand, or NONE when unknown. */

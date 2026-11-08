@@ -42,7 +42,6 @@ public final class SculkwireScreen extends FormScreen {
 		EVENTS("Events"),
 		NOTIFIERS("Notifiers"),
 		VARIABLES("Variables"),
-		INSPECTOR("Inspector"),
 		HISTORY("History"),
 		SETTINGS("Settings");
 
@@ -56,7 +55,6 @@ public final class SculkwireScreen extends FormScreen {
 	private static Tab lastTab = Tab.EVENTS;
 	private final ClientRuntime rt = ClientRuntime.get();
 	private Tab tab = lastTab;
-	private String inspectorFilter = "";
 	private List<UserVariable> varDraft;
 	private long lastHistoryCount = -1;
 
@@ -73,7 +71,7 @@ public final class SculkwireScreen extends FormScreen {
 
 	@Override
 	protected int headerHeight() {
-		return tab == Tab.INSPECTOR ? 72 : 50;
+		return 50;
 	}
 
 	@Override
@@ -86,14 +84,6 @@ public final class SculkwireScreen extends FormScreen {
 			b.active = t != tab;
 			fixed(b, x, 22, tw - 2);
 			x += tw;
-		}
-		if (tab == Tab.INSPECTOR) {
-			EditBox search = box(inspectorFilter, 60, s -> {
-				inspectorFilter = s;
-				scroll = 0;
-				rebuild();
-			}, "Filter signals…");
-			fixed(search, formLeft, 48, formWidth);
 		}
 		footer(button("Done", this::onClose));
 	}
@@ -120,7 +110,6 @@ public final class SculkwireScreen extends FormScreen {
 			case EVENTS -> events();
 			case NOTIFIERS -> notifiers();
 			case VARIABLES -> variables();
-			case INSPECTOR -> inspector();
 			case HISTORY -> history();
 			case SETTINGS -> settings();
 		}
@@ -158,7 +147,7 @@ public final class SculkwireScreen extends FormScreen {
 			if (cfg.notifiers.size() == 1) {
 				r.targets.add(dev.sculkwire.core.model.Target.of(cfg.notifiers.get(0).id));
 			}
-			minecraft.gui.setScreen(new RuleEditScreen(this, r, true));
+			minecraft.gui.setScreen(new BlockEditorScreen(this, r, true));
 		}), 60);
 		actions.add(button("+ Preset", "Start from a ready-made event", this::pickPreset), 70);
 		actions.add(button("Import", "Import events from JSON on the clipboard", () ->
@@ -181,7 +170,7 @@ public final class SculkwireScreen extends FormScreen {
 				r.enabled = v;
 				rt.apply(cfg);
 			}, "On", "Off"), 34);
-			row.add(button("Edit", () -> minecraft.gui.setScreen(new RuleEditScreen(this, r.copy(), false))), 36);
+			row.add(button("Edit", () -> minecraft.gui.setScreen(new BlockEditorScreen(this, r.copy(), false))), 36);
 			row.add(button("Test", "Send now with current or sample values", () -> {
 				if (rt.engine.testFire(r.id)) {
 					ClientRuntime.info("Test of '" + r.name + "' sent.");
@@ -214,10 +203,13 @@ public final class SculkwireScreen extends FormScreen {
 			default -> "on " + r.trigger.event;
 		};
 		List<String> targets = new ArrayList<>();
-		r.targets.forEach(t -> {
-			NotifierConfig n = rt.config().notifier(t.notifier);
-			targets.add(n == null ? t.notifier + "?" : n.displayName());
-		});
+		for (String id : r.notifierIds()) {
+			NotifierConfig n = rt.config().notifier(id);
+			targets.add(n == null ? id + "?" : n.displayName());
+		}
+		if (r.hasBranches() && r.branches.size() > 1) {
+			when += " · " + r.branches.size() + " blocks";
+		}
 		RuleEngine.Status st = rt.engine.status(r.id);
 		String tail = cr != null && !cr.errors.isEmpty() ? "  ✖ " + cr.errors.get(0)
 				: st.outcome().isEmpty() ? "" : "  · last: " + st.outcome();
@@ -242,7 +234,7 @@ public final class SculkwireScreen extends FormScreen {
 					rt.apply(cfg);
 				}
 			}
-			minecraft.gui.setScreen(new RuleEditScreen(this, tmp, true));
+			minecraft.gui.setScreen(new BlockEditorScreen(this, tmp, true));
 		}));
 	}
 
@@ -355,56 +347,6 @@ public final class SculkwireScreen extends FormScreen {
 			ClientRuntime.info("Saved " + clean.size() + " variable(s).");
 			rebuild();
 		}), 110);
-	}
-
-	// ---- inspector ----
-
-	private void inspector() {
-		String f = inspectorFilter.toLowerCase(Locale.ROOT).trim();
-		String cat = null;
-		for (SignalSpec s : rt.signals.specs()) {
-			if (!f.isEmpty() && !s.id().contains(f) && !s.description().toLowerCase(Locale.ROOT).contains(f)) {
-				continue;
-			}
-			if (!s.category().equals(cat)) {
-				cat = s.category();
-				header(RuleEditScreen.cap(cat));
-			}
-			Row r = row(s.id());
-			r.add(button("Use", "Create an event that triggers on this value", () -> useSignal(s)), 34);
-			r.live = () -> {
-				Value v = rt.engine.reader().read(s.id(), Map.of());
-				String text = v.isNone() ? "—" : v.asString();
-				return List.of(Component.literal(text + (s.unit().isEmpty() || v.isNone() ? "" : " " + s.unit()))
-						.withStyle(v.isNone() ? ChatFormatting.DARK_GRAY : ChatFormatting.WHITE));
-			};
-			r.textColor = WHITE;
-		}
-		if (!rt.config().variables.isEmpty() && (f.isEmpty() || "variables".contains(f))) {
-			header("Your variables");
-			for (Map.Entry<String, Value> e : rt.engine.variables().entrySet()) {
-				live(e.getKey(), () -> List.of(Component.literal(e.getValue().asString())), WHITE);
-			}
-		}
-	}
-
-	private void useSignal(SignalSpec s) {
-		Value now = rt.engine.reader().read(s.id(), Map.of());
-		Condition c;
-		switch (s.type()) {
-			case BOOL -> c = Condition.compare(Operand.signal(s.id()), "is_true");
-			case NUMBER -> c = Condition.compare(Operand.signal(s.id()), "lt", Operand.value(now.isNone() ? 0 : now.asNumber()));
-			case ENUM -> c = Condition.compare(Operand.signal(s.id()), "eq", Operand.value(now.isNone() ? s.enumOptions().get(0) : now.asString()));
-			default -> c = Condition.compare(Operand.signal(s.id()), "eq", Operand.value(now.asString()));
-		}
-		Rule r = new Rule();
-		r.name = s.description();
-		r.trigger = Trigger.condition(c);
-		r.message = MessageTemplate.of(s.description(), s.id() + " is now {" + s.id() + "}");
-		if (rt.config().notifiers.size() == 1) {
-			r.targets.add(dev.sculkwire.core.model.Target.of(rt.config().notifiers.get(0).id));
-		}
-		minecraft.gui.setScreen(new RuleEditScreen(this, r, true));
 	}
 
 	// ---- history ----

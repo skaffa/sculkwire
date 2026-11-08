@@ -266,7 +266,10 @@ public final class RuleEngine {
 		}
 	}
 
-	/** Sends a rule's notifications now with current (or sample) values, ignoring throttles. */
+	/**
+	 * Sends a rule's notifications now with current (or sample) values, ignoring throttles. With branches,
+	 * the branch that matches those values is used. Returns false when nothing was sent.
+	 */
 	public boolean testFire(String ruleId) {
 		CompiledRule cr = byId.get(ruleId);
 		if (cr == null) {
@@ -274,16 +277,55 @@ public final class RuleEngine {
 		}
 		RuleState st = state(cr);
 		EvalContext ctx = previewContext(cr, st);
-		deliver(cr, ctx, true);
+		List<CompiledRule.CompiledTarget> targets = select(cr, ctx);
+		if (targets == null || targets.isEmpty()) {
+			outcome(cr, st, clock.millis(), "test: no block matched");
+			return false;
+		}
+		deliver(cr, ctx, true, targets);
 		outcome(cr, st, clock.millis(), "test sent");
-		return !cr.targets.isEmpty();
+		return true;
+	}
+
+	/** The targets to send to: the rule's own, or those of the first matching branch (null = none matched). */
+	private List<CompiledRule.CompiledTarget> select(CompiledRule cr, EvalContext ctx) {
+		if (cr.branches.isEmpty()) {
+			return cr.targets;
+		}
+		for (CompiledRule.CompiledBranch b : cr.branches) {
+			if (b.when() == null || b.when().test(ctx)) {
+				return b.targets();
+			}
+		}
+		return null;
+	}
+
+	/** Index of the branch that matches the current or sample values, or -1 (for the block editor). */
+	public int previewBranch(CompiledRule cr) {
+		EvalContext ctx = previewContext(cr, new RuleState());
+		for (int i = 0; i < cr.branches.size(); i++) {
+			CompiledRule.CompiledBranch b = cr.branches.get(i);
+			try {
+				if (b.when() == null || b.when().test(ctx)) {
+					return i;
+				}
+			} catch (RuntimeException e) {
+				return -1;
+			}
+		}
+		return -1;
 	}
 
 	/** Test-sends an unsaved rule (as edited in the UI) with current or sample values. */
 	public boolean testFire(Rule rule) {
 		CompiledRule cr = compiler.compile(rule, config);
-		deliver(cr, previewContext(cr, new RuleState()), true);
-		return !cr.targets.isEmpty();
+		EvalContext ctx = previewContext(cr, new RuleState());
+		List<CompiledRule.CompiledTarget> targets = select(cr, ctx);
+		if (targets == null || targets.isEmpty()) {
+			return false;
+		}
+		deliver(cr, ctx, true, targets);
+		return true;
 	}
 
 	/** A context with sample payload values (or current ones for change triggers), for previews. */
@@ -457,11 +499,16 @@ public final class RuleEngine {
 			outcome(cr, st, now, why);
 			return;
 		}
+		List<CompiledRule.CompiledTarget> targets = select(cr, ctx);
+		if (targets == null) {
+			outcome(cr, st, now, "no block matched");
+			return;
+		}
 		st.lastFiredAt = now;
 		st.recent.addLast(now);
 		st.firedThisSession = true;
 		outcome(cr, st, now, "fired");
-		deliver(cr, ctx, false);
+		deliver(cr, ctx, false, targets);
 	}
 
 	private String blockReason(CompiledRule cr, EvalContext ctx, RuleState st, long now) {
@@ -561,8 +608,8 @@ public final class RuleEngine {
 		return t.length() == 4 ? "0" + t : t;
 	}
 
-	private void deliver(CompiledRule cr, EvalContext ctx, boolean test) {
-		for (CompiledRule.CompiledTarget t : cr.targets) {
+	private void deliver(CompiledRule cr, EvalContext ctx, boolean test, List<CompiledRule.CompiledTarget> targets) {
+		for (CompiledRule.CompiledTarget t : targets) {
 			NotifierConfig nc = config.notifier(t.notifierId());
 			if (nc == null || (!nc.enabled && !test)) {
 				continue;

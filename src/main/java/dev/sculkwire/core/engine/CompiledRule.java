@@ -33,6 +33,10 @@ public final class CompiledRule {
 		}
 	}
 
+	/** A compiled branch: {@code when} is null for else. */
+	public record CompiledBranch(Cond when, List<CompiledTarget> targets) {
+	}
+
 	public final Rule rule;
 	public Kind kind;
 	public Mode mode = Mode.ON_ENTER;
@@ -51,6 +55,8 @@ public final class CompiledRule {
 	public LocalTime atRealTime;
 	public int interval = 5;
 	public final List<CompiledTarget> targets = new ArrayList<>();
+	/** if / else-if / else chain; empty = always send to {@link #targets}. */
+	public final List<CompiledBranch> branches = new ArrayList<>();
 	public final List<String> errors = new ArrayList<>();
 	public final List<String> warnings = new ArrayList<>();
 

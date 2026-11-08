@@ -106,6 +106,23 @@ public final class SculkwireConfig {
 				r.targets = new ArrayList<>();
 			}
 			r.targets.removeIf(t -> t == null || t.notifier == null);
+			if (r.branches != null) {
+				r.branches.removeIf(b -> b == null);
+				for (Branch b : r.branches) {
+					if (b.sends == null) {
+						b.sends = new ArrayList<>();
+					}
+					b.sends.removeIf(s -> s == null);
+					for (Send s : b.sends) {
+						if (s.message == null) {
+							s.message = MessageTemplate.of("", "");
+						}
+						if (s.notifiers == null) {
+							s.notifiers = new ArrayList<>();
+						}
+					}
+				}
+			}
 		}
 		return this;
 	}

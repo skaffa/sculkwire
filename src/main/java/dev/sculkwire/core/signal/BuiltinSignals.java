@@ -132,6 +132,9 @@ public final class BuiltinSignals {
 		// ---- session ----
 		n(r, "session.afk_seconds", SESSION, "Seconds since your last key or mouse input", "s");
 		b(r, "session.window_focused", SESSION, "The game window has focus");
+		r.define(SignalSpec.builder("session.actively_playing", BOOL, SESSION,
+				"You are actively playing: the window has focus and you gave input recently")
+				.param(ParamSpec.number("idle_seconds", 30, 1, 3600, "Idle after (s)")).build());
 		r.define(SignalSpec.builder("session.screen", ENUM, SESSION, "Open screen")
 				.options("none", "chat", "inventory", "container", "pause", "death", "other").build());
 		n(r, "session.playtime_seconds", SESSION, "Seconds since joining this world or server", "s");

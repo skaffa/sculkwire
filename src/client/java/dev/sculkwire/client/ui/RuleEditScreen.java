@@ -47,7 +47,19 @@ public final class RuleEditScreen extends FormScreen {
 	private static final List<String> KINDS = List.of(Trigger.EVENT, Trigger.CONDITION, Trigger.CHANGE, Trigger.SCHEDULE);
 	private static final List<String> PRIORITIES = List.of("min", "low", "default", "high", "urgent");
 
+	/** Which part to edit when used as a popup of the block editor (null = everything). */
+	public enum Section {
+		TRIGGER,
+		SETTINGS,
+		COMPARE,
+		SEND
+	}
+
 	private final ClientRuntime rt = ClientRuntime.get();
+	private final Section section;
+	private Condition editCond;
+	private dev.sculkwire.core.model.Send editSend;
+	private MessageTemplate previewMessage;
 	private final Rule rule;
 	private final boolean isNew;
 	private final String originalId;
@@ -56,7 +68,33 @@ public final class RuleEditScreen extends FormScreen {
 	private EditBox lastTemplateBox;
 
 	public RuleEditScreen(Screen parent, Rule rule, boolean isNew) {
-		super(Component.literal(isNew ? "New event" : "Edit event"), parent);
+		this(parent, rule, isNew, null, null);
+	}
+
+	/** A popup that edits one part of {@code rule} in place; Done returns to the parent. */
+	public static RuleEditScreen popup(Screen parent, Rule rule, Section section, Object target) {
+		return new RuleEditScreen(parent, rule, false, section, target);
+	}
+
+	private RuleEditScreen(Screen parent, Rule rule, boolean isNew, Section section, Object target) {
+		super(Component.literal(section == null ? (isNew ? "New event" : "Edit event") : switch (section) {
+			case TRIGGER -> "When…";
+			case SETTINGS -> "Event settings";
+			case COMPARE -> "Condition";
+			case SEND -> "Send";
+		}), parent);
+		this.section = section;
+		if (target instanceof Condition c) {
+			editCond = c;
+		} else if (target instanceof dev.sculkwire.core.model.Send s) {
+			editSend = s;
+			if (s.message.tags == null) {
+				s.message.tags = new ArrayList<>();
+			}
+			if (s.message.priority == null) {
+				s.message.priority = "default";
+			}
+		}
 		this.rule = rule;
 		this.isNew = isNew;
 		this.originalId = rule.id;
@@ -113,13 +151,86 @@ public final class RuleEditScreen extends FormScreen {
 
 	@Override
 	protected void buildFixed() {
+		if (section != null) {
+			footer(button("Done", this::onClose));
+			return;
+		}
 		footer(button("Save", this::save), button("Test send", "Send this event's message now (marked as test)", this::test),
 				button("Cancel", this::onClose));
+	}
+
+	private void buildSection() {
+		switch (section) {
+			case TRIGGER -> {
+				header("When");
+				triggerRows();
+				if (rule.conditions != null) {
+					header("Only if");
+					condRows(rule.conditions, 0, () -> {
+						rule.conditions = null;
+						structural();
+					});
+				}
+			}
+			case SETTINGS -> {
+				header("General");
+				row("Name").add(box(rule.name, 100, v -> {
+					rule.name = v;
+					changed();
+				}, "e.g. Low health"), -1);
+				row("Enabled").add(toggle(() -> rule.enabled, v -> rule.enabled = v, "Yes", "No"), 70);
+				limitsSection();
+				scopeSection();
+			}
+			case COMPARE -> {
+				header("Check");
+				condRows(editCond, 0, null);
+				text(Component.literal("Values can be numbers, text, ids, a list (a, b, c) or a {variable}."), DARK, 0);
+			}
+			case SEND -> {
+				messageSection(editSend.message);
+				header("Send to");
+				if (rt.config().notifiers.isEmpty()) {
+					text("You have no notifiers yet. Add one on the Notifiers tab.", WARN);
+				}
+				for (NotifierConfig n : rt.config().notifiers) {
+					row(n.displayName() + " (" + n.type + ")").add(toggle(() -> editSend.notifiers.contains(n.id), v -> {
+						editSend.notifiers.remove(n.id);
+						if (v) {
+							editSend.notifiers.add(n.id);
+						}
+						changed();
+					}, "Send", "Off"), 50);
+				}
+			}
+		}
+		header("Check");
+		live(null, this::problems, GRAY);
+	}
+
+	private void triggerRows() {
+		row("Trigger").add(cycle(KINDS, () -> rule.trigger.kind, k -> {
+			rule.trigger.kind = k;
+			ensureTriggerDefaults();
+			structural();
+		}, RuleEditScreen::kindLabel), -1);
+		switch (rule.trigger.kind) {
+			case Trigger.EVENT -> eventSection();
+			case Trigger.CONDITION -> conditionSection();
+			case Trigger.CHANGE -> changeSection();
+			case Trigger.SCHEDULE -> scheduleSection();
+			default -> {
+			}
+		}
 	}
 
 	@Override
 	protected void buildRows() {
 		templateBoxes.clear();
+		if (section != null) {
+			buildSection();
+			return;
+		}
 		header("General");
 		row("Name").add(box(rule.name, 100, v -> {
 			rule.name = v;
@@ -155,7 +266,7 @@ public final class RuleEditScreen extends FormScreen {
 			});
 		}
 
-		messageSection();
+		messageSection(rule.message);
 		targetSection();
 		limitsSection();
 		scopeSection();
@@ -481,7 +592,7 @@ public final class RuleEditScreen extends FormScreen {
 		return rt.engine.compiler().typeOf(c.left, payload, vars);
 	}
 
-	private Map<String, ValueType> payloadTypes() {
+	Map<String, ValueType> payloadTypes() {
 		Map<String, ValueType> m = new LinkedHashMap<>();
 		if (Trigger.EVENT.equals(rule.trigger.kind)) {
 			EventSpec spec = rt.events.get(rule.trigger.event);
@@ -502,8 +613,8 @@ public final class RuleEditScreen extends FormScreen {
 
 	// ---- message, targets, limits, scope ----
 
-	private void messageSection() {
-		MessageTemplate m = rule.message;
+	private void messageSection(MessageTemplate m) {
+		previewMessage = m;
 		header("Message");
 		EditBox title = box(m.title, 500, v -> {
 			m.title = v;
@@ -541,8 +652,9 @@ public final class RuleEditScreen extends FormScreen {
 		}
 		try {
 			EvalContext ctx = rt.engine.previewContext(compiled);
-			String t = Template.parse(rule.message.title).render(ctx, OutputContext.PLAIN);
-			String b = Template.parse(rule.message.body).render(ctx, OutputContext.PLAIN);
+			MessageTemplate pm = previewMessage == null ? rule.message : previewMessage;
+			String t = Template.parse(pm.title).render(ctx, OutputContext.PLAIN);
+			String b = Template.parse(pm.body).render(ctx, OutputContext.PLAIN);
 			List<Component> out = new ArrayList<>();
 			out.add(Component.literal(t.isEmpty() ? "(no title)" : t).withStyle(ChatFormatting.BOLD));
 			for (String line : b.split("\n", -1)) {
@@ -682,7 +794,12 @@ public final class RuleEditScreen extends FormScreen {
 		minecraft.gui.setScreen(new PickerScreen<>(this, "Choose a value", items, onPick));
 	}
 
-	private void pickOperand(Consumer<Operand> onPick) {
+	void pickOperand(Consumer<Operand> onPick) {
+		pickOperandFrom(this, onPick);
+	}
+
+	/** Opens the value picker with {@code returnTo} as the screen to go back to. */
+	void pickOperandFrom(Screen returnTo, Consumer<Operand> onPick) {
 		List<PickerScreen.Item<Operand>> items = new ArrayList<>();
 		for (Map.Entry<String, ValueType> e : payloadTypes().entrySet()) {
 			items.add(new PickerScreen.Item<>(e.getKey(), "from this trigger (" + e.getValue().id() + ")", "This trigger", Operand.payload(e.getKey())));
@@ -693,7 +810,7 @@ public final class RuleEditScreen extends FormScreen {
 		for (SignalSpec s : rt.signals.specs()) {
 			items.add(new PickerScreen.Item<>(s.id(), s.description() + typeSuffix(s), cap(s.category()), Operand.signal(s.id())));
 		}
-		minecraft.gui.setScreen(new PickerScreen<>(this, "Choose what to check", items, onPick));
+		minecraft.gui.setScreen(new PickerScreen<>(returnTo, "Choose what to check", items, onPick));
 	}
 
 	private void insertVariable() {
@@ -761,6 +878,10 @@ public final class RuleEditScreen extends FormScreen {
 	}
 
 	// ---- helpers ----
+
+	static String kindLabelFor(String kind) {
+		return kindLabel(kind);
+	}
 
 	static String kindLabel(String kind) {
 		return switch (kind) {

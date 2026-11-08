@@ -385,6 +385,56 @@ class RuleEngineTest {
 		assertEquals(1, w.count());
 	}
 
+	private static dev.sculkwire.core.model.Send send(String title) {
+		return dev.sculkwire.core.model.Send.of(MessageTemplate.of(title, "{player.health}"), "phone");
+	}
+
+	@Test
+	void ifElseIfElseSendsFirstMatchingBranch() {
+		Rule r = new Rule();
+		r.name = "branches";
+		r.trigger = Trigger.event("custom");
+		r.branches = new java.util.ArrayList<>(List.of(
+				dev.sculkwire.core.model.Branch.of(Condition.compare(Operand.signal("player.health"), "lt", Operand.value(6)), send("low")),
+				dev.sculkwire.core.model.Branch.of(Condition.compare(Operand.signal("player.health"), "lt", Operand.value(12)), send("mid")),
+				dev.sculkwire.core.model.Branch.of(null, send("ok"))));
+		TestWorld w = new TestWorld().add(r).join();
+		assertTrue(w.engine.rule(r.id).errors.isEmpty(), w.engine.rule(r.id).errors.toString());
+		for (int hp : new int[] {4, 10, 20}) {
+			w.set("player.health", hp).ticks(1); // signal reads are cached per tick
+			w.engine.post("custom", Map.of("name", Value.str("x")));
+		}
+		assertEquals(3, w.count());
+		assertEquals("low", w.sent.get(0).notification().title(dev.sculkwire.core.template.OutputContext.PLAIN));
+		assertEquals("mid", w.sent.get(1).notification().title(dev.sculkwire.core.template.OutputContext.PLAIN));
+		assertEquals("ok", w.lastTitle());
+		w.set("player.health", 5).ticks(1);
+		assertTrue(w.engine.testFire(r.id));
+		assertEquals("low", w.lastTitle());
+		assertEquals(0, w.engine.previewBranch(w.engine.rule(r.id)));
+	}
+
+	@Test
+	void noMatchingBranchSendsNothingAndElseMustBeLast() {
+		Rule r = new Rule();
+		r.name = "only-if";
+		r.trigger = Trigger.event("custom");
+		r.branches = new java.util.ArrayList<>(List.of(
+				dev.sculkwire.core.model.Branch.of(Condition.compare(Operand.signal("player.health"), "lt", Operand.value(6)), send("low"))));
+		TestWorld w = new TestWorld().set("player.health", 20).add(r).join();
+		w.engine.post("custom", Map.of());
+		assertEquals(0, w.count());
+		assertEquals("no block matched", w.engine.status(r.id).outcome());
+
+		Rule bad = new Rule();
+		bad.name = "bad-else";
+		bad.trigger = Trigger.event("custom");
+		bad.branches = new java.util.ArrayList<>(List.of(dev.sculkwire.core.model.Branch.of(null, send("a")),
+				dev.sculkwire.core.model.Branch.of(Condition.compare(Operand.signal("player.health"), "lt", Operand.value(6)), send("b"))));
+		w.add(bad);
+		assertFalse(w.engine.rule(bad.id).errors.isEmpty());
+	}
+
 	@Test
 	void stateRulesOnlyRunInAWorld() {
 		Rule every = new Rule();

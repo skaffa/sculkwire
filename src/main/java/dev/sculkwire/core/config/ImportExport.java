@@ -37,9 +37,7 @@ public final class ImportExport {
 		TreeSet<String> refs = new TreeSet<>();
 		for (Rule r : rules) {
 			rs.add(Json.GSON.toJsonTree(r));
-			for (Target t : r.targets) {
-				refs.add(t.notifier);
-			}
+			refs.addAll(r.notifierIds());
 		}
 		root.add("rules", rs);
 		root.add("variables", Json.GSON.toJsonTree(variables == null ? List.of() : variables));
@@ -105,9 +103,7 @@ public final class ImportExport {
 		}
 		TreeSet<String> refSet = new TreeSet<>();
 		for (Rule r : rules) {
-			if (r.targets != null) {
-				r.targets.forEach(t -> refSet.add(t.notifier));
-			}
+			refSet.addAll(r.notifierIds());
 		}
 		refs.addAll(refSet);
 		if (rules.isEmpty() && problems.isEmpty()) {
@@ -138,6 +134,18 @@ public final class ImportExport {
 				}
 			}
 			r.targets = targets;
+			if (r.hasBranches()) {
+				for (dev.sculkwire.core.model.Branch b : r.branches) {
+					if (b != null && b.sends != null) {
+						for (dev.sculkwire.core.model.Send s : b.sends) {
+							if (s != null && s.notifiers != null) {
+								s.notifiers.replaceAll(n -> notifierMap == null ? null : notifierMap.get(n));
+								s.notifiers.removeIf(n -> n == null || cfg.notifier(n) == null);
+							}
+						}
+					}
+				}
+			}
 			cfg.rules.add(r);
 			added.add(r);
 		}

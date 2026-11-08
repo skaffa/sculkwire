@@ -279,6 +279,10 @@ public final class ClientSignals {
 		// ---- session ----
 		r.source("session.afk_seconds", params -> Value.num(Math.floor(tr.afkSeconds())));
 		r.source("session.window_focused", params -> Value.bool(mc().isWindowActive()));
+		r.source("session.actively_playing", params -> {
+			double idle = params.getOrDefault("idle_seconds", Value.num(30)).asNumber();
+			return Value.bool(mc().player != null && mc().isWindowActive() && tr.afkSeconds() < idle);
+		});
 		r.source("session.screen", params -> Value.enumOf(screenKind(mc().gui.screen())));
 		r.source("session.playtime_seconds", params -> tr.inWorld() ? Value.num(Math.floor(tr.playtimeSeconds())) : Value.NONE);
 		r.source("session.deaths", params -> tr.inWorld() ? Value.num(tr.deaths()) : Value.NONE);

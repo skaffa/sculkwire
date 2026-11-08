@@ -19,8 +19,11 @@ game server.
   "must hold for N seconds", cooldowns, hourly limits, quiet hours and a mute button.
 - **Your own messages**: `{player.health|hearts} hearts left at {player.block_pos}`, using any value,
   with filters.
-- **Editor in game**: `/sw` (or Mod Menu's Configure button) opens it. It has a live inspector of every value, message previews, test
-  buttons and a delivery history.
+- **Block editor**: build events from Scratch-like blocks: *when …*, *if / else if / else*, *and / or / not*
+  and *send*. Drag any live value from the palette into a condition. `/sw` (or Mod Menu's Configure button)
+  opens it.
+- **Skip while you play**: a built-in "actively playing" value holds notifications while you are at the
+  keyboard.
 - **19 presets** and import/export to share setups. Exports never include your secrets.
 
 ## Getting started
