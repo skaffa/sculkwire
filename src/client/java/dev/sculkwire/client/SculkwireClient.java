@@ -85,7 +85,9 @@ public final class SculkwireClient implements ClientModInitializer {
 			Map<String, Value> p = new LinkedHashMap<>();
 			p.put("msg.text", Value.str(text));
 			p.put("msg.full", Value.str(full));
-			p.put("msg.sender", Value.str(sender != null ? sender.name() : ""));
+			// unsigned ("disguised") chat has no profile; the chat type still carries the sender's name
+			String senderName = sender != null ? sender.name() : params != null ? Filters.stripFormatting(params.name().getString()) : "";
+			p.put("msg.sender", Value.str(senderName));
 			p.put("msg.sender_uuid", Value.str(sender != null ? sender.id().toString() : ""));
 			p.put("msg.kind", Value.enumOf("player"));
 			p.put("msg.is_own", Value.bool(sender != null && mc.player != null && sender.id().equals(mc.player.getUUID())));
