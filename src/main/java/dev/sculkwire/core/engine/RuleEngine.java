@@ -279,6 +279,13 @@ public final class RuleEngine {
 		return !cr.targets.isEmpty();
 	}
 
+	/** Test-sends an unsaved rule (as edited in the UI) with current or sample values. */
+	public boolean testFire(Rule rule) {
+		CompiledRule cr = compiler.compile(rule, config);
+		deliver(cr, previewContext(cr, new RuleState()), true);
+		return !cr.targets.isEmpty();
+	}
+
 	/** A context with sample payload values (or current ones for change triggers), for previews. */
 	public EvalContext previewContext(CompiledRule cr) {
 		return previewContext(cr, new RuleState());

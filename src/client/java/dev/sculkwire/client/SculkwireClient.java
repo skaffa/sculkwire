@@ -42,13 +42,19 @@ public final class SculkwireClient implements ClientModInitializer {
 	public void onInitializeClient() {
 		ClientRuntime rt = ClientRuntime.init();
 		SculkwireApi.bind(rt::post);
+		screenFactory = dev.sculkwire.client.ui.SculkwireScreen::new;
 
 		KeyMapping.Category category = KeyMapping.Category.register(Identifier.fromNamespaceAndPath(Sculkwire.MOD_ID, "main"));
 		openKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.sculkwire.open",
 				InputConstants.UNKNOWN.getValue(), category));
 
+		if (Boolean.getBoolean("sculkwire.devshots")) {
+			registerDevShots();
+		}
+
 		ClientTickEvents.END_CLIENT_TICK.register(mc -> {
 			rt.trackers.tick(mc);
+			dev.sculkwire.client.ui.DevScreenshots.tick(mc);
 			rt.flushWarnings();
 			while (openKey.consumeClick()) {
 				openRequested = true;
@@ -59,7 +65,10 @@ public final class SculkwireClient implements ClientModInitializer {
 			}
 		});
 
-		ClientPlayConnectionEvents.JOIN.register((handler, sender, mc) -> rt.trackers.onJoin(mc));
+		ClientPlayConnectionEvents.JOIN.register((handler, sender, mc) -> {
+			rt.trackers.onJoin(mc);
+			dev.sculkwire.client.ui.DevScreenshots.onJoin();
+		});
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, mc) -> rt.trackers.onDisconnect());
 
 		ClientReceiveMessageEvents.CHAT.register((message, signed, sender, params, timestamp) -> {
@@ -107,6 +116,27 @@ public final class SculkwireClient implements ClientModInitializer {
 		ClientCommandRegistrationCallback.EVENT.register((dispatcher, context) -> SculkwireCommands.register(dispatcher));
 		Sculkwire.LOG.info("{} loaded: {} signals, {} events, {} notifier types", Sculkwire.NAME,
 				rt.signals.specs().size(), rt.events.all().size(), rt.notifiers.all().size());
+	}
+
+	private static void registerDevShots() {
+		for (int i = 0; i < 6; i++) {
+			int tab = i;
+			dev.sculkwire.client.ui.DevScreenshots.add("tab" + i, () -> dev.sculkwire.client.ui.SculkwireScreen.atTab(null, tab));
+		}
+		dev.sculkwire.client.ui.DevScreenshots.add("rule-condition", () -> {
+			var cfg = ClientRuntime.get().config();
+			var r = cfg.rule("low-health-afk") != null ? cfg.rule("low-health-afk").copy() : cfg.rules.get(0).copy();
+			return new dev.sculkwire.client.ui.RuleEditScreen(null, r, false);
+		});
+		dev.sculkwire.client.ui.DevScreenshots.add("rule-event", () -> {
+			var cfg = ClientRuntime.get().config();
+			var r = cfg.rule("ev-chat") != null ? cfg.rule("ev-chat").copy() : cfg.rules.get(0).copy();
+			return new dev.sculkwire.client.ui.RuleEditScreen(null, r, false);
+		});
+		dev.sculkwire.client.ui.DevScreenshots.add("notifier-ntfy", () -> new dev.sculkwire.client.ui.NotifierEditScreen(null,
+				dev.sculkwire.core.model.NotifierConfig.of("", "Phone", "ntfy"), true));
+		dev.sculkwire.client.ui.DevScreenshots.add("notifier-webhook", () -> new dev.sculkwire.client.ui.NotifierEditScreen(null,
+				dev.sculkwire.core.util.Json.copy(ClientRuntime.get().config().notifiers.get(0), dev.sculkwire.core.model.NotifierConfig.class), false));
 	}
 
 	private static void open(Minecraft mc) {

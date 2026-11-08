@@ -16,6 +16,10 @@ loom {
 		client {
 			// Keep the dev game small enough for 8 GB machines.
 			vmArgs "-Xms256M", "-Xmx2G"
+			// ./gradlew runClient -Pdevshots: open each editor screen after joining and save screenshots
+			if (project.hasProperty("devshots")) {
+				property "sculkwire.devshots", "true"
+			}
 		}
 		server {
 			// Separate folder so the test server does not share worlds or configs with the client.
