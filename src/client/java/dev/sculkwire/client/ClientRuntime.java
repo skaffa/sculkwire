@@ -73,6 +73,15 @@ public final class ClientRuntime {
 		trackers = new Trackers(this);
 		ClientSignals.register(signals, trackers);
 		runPlugins();
+		List<String> missing = new ArrayList<>();
+		for (var spec : signals.specs()) {
+			if (!signals.hasSource(spec.id())) {
+				missing.add(spec.id());
+			}
+		}
+		if (!missing.isEmpty()) {
+			Sculkwire.LOG.warn("Sculkwire signals without a source (always unavailable): {}", missing);
+		}
 
 		history = new History(dir.resolve("history.jsonl"), config.settings.historySize);
 		history.load();
