@@ -1,0 +1,38 @@
+{
+	"schemaVersion": 1,
+	"id": "sculkwire",
+	"version": "${version}",
+	"name": "Sculkwire",
+	"description": "Set up triggers on chat, player and world state, and get notified on your phone or Discord through ntfy, Discord webhooks or any webhook.",
+	"authors": [
+		"Skaffa",
+		"Claude (Anthropic)"
+	],
+	"contact": {
+		"sources": "https://github.com/skaffa/sculkwire",
+		"issues": "https://github.com/skaffa/sculkwire/issues"
+	},
+	"license": "MIT",
+	"icon": "assets/sculkwire/icon.png",
+	"environment": "client",
+	"entrypoints": {
+		"client": [
+			"dev.sculkwire.client.SculkwireClient"
+		]
+	},
+	"mixins": [
+		{
+			"config": "sculkwire.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.20.1",
+		"minecraft": "~26.3",
+		"java": ">=25",
+		"fabric-api": "*"
+	},
+	"suggests": {
+		"modmenu": "*"
+	}
+}

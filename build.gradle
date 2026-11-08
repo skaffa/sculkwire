@@ -1,0 +1,77 @@
+plugins {
+	id 'net.fabricmc.fabric-loom' version "${loom_version}"
+}
+
+version = "${project.mod_version}+${project.minecraft_version}"
+group = project.maven_group
+
+base {
+	archivesName = project.archives_base_name
+}
+
+loom {
+	splitEnvironmentSourceSets()
+
+	runs {
+		client {
+			// Keep the dev game small enough for 8 GB machines.
+			vmArgs "-Xms256M", "-Xmx2G"
+		}
+		server {
+			// Separate folder so the test server does not share worlds or configs with the client.
+			runDir "run-server"
+			vmArgs "-Xms256M", "-Xmx1G"
+		}
+	}
+
+	mods {
+		"sculkwire" {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+	// Core (src/main) never imports Minecraft classes, so it is tested with plain JUnit.
+	testImplementation platform("org.junit:junit-bom:${project.junit_version}")
+	testImplementation "org.junit.jupiter:junit-jupiter"
+	testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+}
+
+processResources {
+	def version = project.version
+	inputs.property "version", version
+
+	filesMatching("fabric.mod.json") {
+		expand "version": version
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 25
+	it.options.encoding = "UTF-8"
+}
+
+test {
+	useJUnitPlatform()
+}
+
+java {
+	withSourcesJar()
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
+}
+
+jar {
+	def projectName = project.name
+	inputs.property "projectName", projectName
+
+	from("LICENSE") {
+		rename { "${it}_$projectName" }
+	}
+}
