@@ -34,6 +34,7 @@ public final class BuiltinEvents {
 		r.define(new EventSpec("chat.message", CHAT, "A chat or system message arrives",
 				List.of(
 						PayloadVar.of("msg.text", STRING, "Steve, come look at this", "Message text (formatting removed)"),
+						PayloadVar.of("msg.full", STRING, "<Alex> Steve, come look at this", "The whole line as shown in chat"),
 						PayloadVar.of("msg.sender", STRING, "Alex", "Sender name (player chat, or extracted with the sender regex)"),
 						PayloadVar.of("msg.sender_uuid", STRING, "", "Sender UUID (player chat only)"),
 						PayloadVar.of("msg.kind", ENUM, "player", "player or system"),
@@ -138,11 +139,16 @@ public final class BuiltinEvents {
 				List.of(PayloadVar.of("server.address", STRING, "play.example.net", "Server address"),
 						PayloadVar.of("world.name", STRING, "play.example.net", "World or server")),
 				List.of(), EventFilter.ANY));
+		EventFilter reasonFilter = EventFilters.of(regex("pattern", "reason"));
 		r.define(new EventSpec("connection.disconnected", SERVER, "You were disconnected or kicked",
 				List.of(PayloadVar.of("reason", STRING, "Server closed", "Disconnect reason"),
 						PayloadVar.of("server.address", STRING, "play.example.net", "Server address"),
-						PayloadVar.of("session.playtime_seconds", NUMBER, 5400, "Seconds played")),
-				List.of(pattern("Reason matches")), EventFilters.of(regex("pattern", "reason"))));
+						PayloadVar.of("session.playtime_seconds", NUMBER, 5400, "Seconds played"),
+						PayloadVar.of("voluntary", BOOL, false, "You left yourself (Disconnect / Save and Quit)")),
+				List.of(pattern("Reason matches"),
+						FieldSpec.of("include_quit", FieldKind.BOOL, "Also when I leave myself").withDefault(false)),
+				(p, ctx) -> (dev.sculkwire.core.util.Json.bool(p, "include_quit", false) || !ctx.payload("voluntary").asBool())
+						&& reasonFilter.test(p, ctx)));
 
 		// ---- other ----
 		r.define(new EventSpec("client.started", OTHER, "The game finished starting", List.of(), List.of(), EventFilter.ANY));

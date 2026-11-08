@@ -80,6 +80,7 @@ public final class RuleEngine {
 	private final Set<String> warned = new HashSet<>();
 	private long tick;
 	private long graceUntil;
+	private boolean inWorld;
 	private long conditionGraceUntil;
 
 	public RuleEngine(SignalRegistry signals, EventRegistry events, Clock clock, Sink sink) {
@@ -147,6 +148,20 @@ public final class RuleEngine {
 		byEvent = evIndex;
 	}
 
+	/** True when an active rule listens for this event (lets hooks skip expensive work). */
+	public boolean listensTo(String eventId) {
+		List<CompiledRule> list = byEvent.get(eventId);
+		if (list == null) {
+			return false;
+		}
+		for (CompiledRule cr : list) {
+			if (cr.active()) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	public List<CompiledRule> rules() {
 		return compiled;
 	}
@@ -188,9 +203,12 @@ public final class RuleEngine {
 		cache.clear();
 		graceUntil = now + (long) (config.settings.joinGraceSeconds * 1000);
 		conditionGraceUntil = graceUntil;
+		inWorld = true;
 	}
 
+	/** Condition, change and schedule rules only run while in a world. */
 	public void onDisconnect() {
+		inWorld = false;
 		states.values().forEach(RuleState::resetSession);
 		cache.clear();
 	}
@@ -206,7 +224,7 @@ public final class RuleEngine {
 		cache.newTick(tick);
 		long now = clock.millis();
 		for (CompiledRule cr : compiled) {
-			if (!cr.active() || cr.kind == CompiledRule.Kind.EVENT || tick % cr.interval != 0) {
+			if (!inWorld || !cr.active() || cr.kind == CompiledRule.Kind.EVENT || tick % cr.interval != 0) {
 				continue;
 			}
 			try {

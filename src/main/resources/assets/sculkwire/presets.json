@@ -2,10 +2,10 @@
 	{
 		"id": "mentioned",
 		"name": "Mentioned in chat",
-		"description": "Someone says your name in chat.",
+		"description": "A player says your name in chat.",
 		"rule": {
 			"name": "Mentioned in chat",
-			"trigger": {"kind": "event", "event": "chat.message", "params": {"mode": "mentions_me", "source": "both", "ignore_own": true}},
+			"trigger": {"kind": "event", "event": "chat.message", "params": {"mode": "mentions_me", "source": "player", "ignore_own": true}},
 			"throttle": {"cooldown_seconds": 10},
 			"message": {"title": "{msg.sender|default:'Chat'} mentioned you", "body": "{msg.text}", "priority": "high", "tags": ["speech_balloon"], "click": ""}
 		}
@@ -203,7 +203,7 @@
 		"rule": {
 			"name": "Entered the Nether",
 			"trigger": {"kind": "event", "event": "player.dimension_changed", "params": {"to": ["minecraft:the_nether"]}},
-			"message": {"title": "Entered the Nether", "body": "From {old|pretty} at {player.block_pos}", "priority": "low", "tags": ["fire"], "click": ""}
+			"message": {"title": "Entered the Nether", "body": "Came from {old|pretty}", "priority": "low", "tags": ["fire"], "click": ""}
 		}
 	},
 	{

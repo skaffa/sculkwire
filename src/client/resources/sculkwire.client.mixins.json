@@ -2,7 +2,15 @@
 	"required": true,
 	"package": "dev.sculkwire.client.mixin",
 	"compatibilityLevel": "JAVA_25",
-	"client": [],
+	"client": [
+		"AdvancementToastMixin",
+		"BossHealthOverlayAccessor",
+		"ClientCommonPacketListenerImplMixin",
+		"ClientPacketListenerMixin",
+		"HudMixin",
+		"LivingEntityMixin",
+		"SoundManagerMixin"
+	],
 	"injectors": {
 		"defaultRequire": 1
 	}

@@ -386,6 +386,21 @@ class RuleEngineTest {
 	}
 
 	@Test
+	void stateRulesOnlyRunInAWorld() {
+		Rule every = new Rule();
+		every.name = "every";
+		every.trigger = Trigger.every(5);
+		TestWorld w = new TestWorld().add(every);
+		w.seconds(20);
+		assertEquals(0, w.count(), "not joined yet");
+		w.join().seconds(12);
+		assertEquals(2, w.count());
+		w.engine.onDisconnect();
+		w.seconds(20);
+		assertEquals(2, w.count(), "disconnected");
+	}
+
+	@Test
 	void eventRulesIgnoreParamsTheyDoNotHave() {
 		Rule r = new Rule();
 		r.name = "custom";
