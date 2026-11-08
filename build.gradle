@@ -18,7 +18,7 @@ loom {
 			vmArgs "-Xms256M", "-Xmx2G"
 			// ./gradlew runClient -Pdevshots: open each editor screen after joining and save screenshots
 			if (project.hasProperty("devshots")) {
-				property "sculkwire.devshots", "true"
+				property "sculkwire.devshots", project.property("devshots").toString() ?: "true"
 			}
 		}
 		server {
@@ -36,10 +36,24 @@ loom {
 	}
 }
 
+repositories {
+	maven {
+		name = 'Terraformers'
+		url = 'https://maven.terraformersmc.com/releases/'
+		content {
+			includeGroup 'com.terraformersmc'
+		}
+	}
+}
+
 dependencies {
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
 	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+	// Optional: "Configure" button in Mod Menu. Not bundled; also loaded in the dev client.
+	clientCompileOnly "com.terraformersmc:modmenu:${project.modmenu_version}"
+	localRuntime "com.terraformersmc:modmenu:${project.modmenu_version}"
 
 	// Core (src/main) never imports Minecraft classes, so it is tested with plain JUnit.
 	testImplementation platform("org.junit:junit-bom:${project.junit_version}")

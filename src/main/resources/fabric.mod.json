@@ -19,6 +19,9 @@
 	"entrypoints": {
 		"client": [
 			"dev.sculkwire.client.SculkwireClient"
+		],
+		"modmenu": [
+			"dev.sculkwire.client.compat.ModMenuIntegration"
 		]
 	},
 	"mixins": [

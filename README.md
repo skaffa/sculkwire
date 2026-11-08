@@ -29,7 +29,7 @@ singleplayer, and sends nothing to the game server.
   Conditions that are already true when you join do not fire.
 - **Variables**: use `{player.name}`, `{msg.text}`, `{player.health|hearts}` or any tracked value in
   messages and conditions, plus your own variables (for example a `friends` list).
-- **Editor in game**: `/sw` or a key binding opens the editor. It has a live inspector of every value, a
+- **Editor in game**: `/sw`, a key binding, or the Configure button in [Mod Menu](https://modrinth.com/mod/modmenu) opens the editor. It has a live inspector of every value, a
   preview of your message, and a delivery history. Everything is also plain JSON in `config/sculkwire/`.
 - **19 presets** to start from, and import/export to share events (never with your secrets).
 
@@ -147,7 +147,7 @@ The jar ends up in `build/libs/`.
   `tools/capture_server.py` as a stand-in for ntfy, Discord and webhooks, and `tools/rcon.py` to script
   game situations.
 - **UI screenshots:** `./gradlew runClient -Pdevshots` opens each editor screen after joining and saves a
-  screenshot of it.
+  screenshot of it; `-Pdevshots=modmenu` does the same for the Mod Menu entry at the title screen.
 
 ## License
 

@@ -21,5 +21,5 @@ First release.
   grace, and scope by server, world or dimension.
 - Templates with filters, escaped per destination (JSON, URL, header, Discord markdown, Telegram HTML).
 - In-game editor with live inspector, message preview, delivery history, 19 presets and import/export.
-- `/sculkwire` (`/sw`) commands.
+- `/sculkwire` (`/sw`) commands, and a Configure button in Mod Menu (optional).
 - Plugin API for other mods (experimental).

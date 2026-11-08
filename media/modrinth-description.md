@@ -19,7 +19,7 @@ game server.
   "must hold for N seconds", cooldowns, hourly limits, quiet hours and a mute button.
 - **Your own messages**: `{player.health|hearts} hearts left at {player.block_pos}`, using any value,
   with filters.
-- **Editor in game**: `/sw` opens it. It has a live inspector of every value, message previews, test
+- **Editor in game**: `/sw` (or Mod Menu's Configure button) opens it. It has a live inspector of every value, message previews, test
   buttons and a delivery history.
 - **19 presets** and import/export to share setups. Exports never include your secrets.
 

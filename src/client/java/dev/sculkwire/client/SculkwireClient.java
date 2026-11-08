@@ -48,7 +48,11 @@ public final class SculkwireClient implements ClientModInitializer {
 		openKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.sculkwire.open",
 				InputConstants.UNKNOWN.getValue(), category));
 
-		if (Boolean.getBoolean("sculkwire.devshots")) {
+		if (dev.sculkwire.client.ui.DevScreenshots.titleMode()) {
+			if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("modmenu")) {
+				dev.sculkwire.client.compat.ModMenuIntegration.registerDevShots();
+			}
+		} else if (Boolean.parseBoolean(System.getProperty("sculkwire.devshots", "false"))) {
 			registerDevShots();
 		}
 
@@ -106,7 +110,10 @@ public final class SculkwireClient implements ClientModInitializer {
 		ClientEntityEvents.ENTITY_UNLOAD.register((entity, level) -> rt.trackers.onEntityLoad(entity, false));
 		ScreenEvents.AFTER_INIT.register((mc, screen, w, h) -> rt.trackers.onScreenInit(screen));
 
-		ClientLifecycleEvents.CLIENT_STARTED.register(mc -> rt.post("client.started", Map.of()));
+		ClientLifecycleEvents.CLIENT_STARTED.register(mc -> {
+			rt.post("client.started", Map.of());
+			dev.sculkwire.client.ui.DevScreenshots.onStarted();
+		});
 		ClientLifecycleEvents.CLIENT_STOPPING.register(mc -> {
 			rt.post("client.stopping", Map.of());
 			rt.dispatcher.flush(3_000);

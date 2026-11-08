@@ -16,7 +16,20 @@ import java.util.function.Supplier;
  * UI without clicking through it.
  */
 public final class DevScreenshots {
-	private static final boolean ENABLED = Boolean.getBoolean("sculkwire.devshots");
+	private static final String MODE = System.getProperty("sculkwire.devshots", "");
+	private static final boolean ENABLED = !MODE.isEmpty() && !MODE.equals("false");
+
+	/** "modmenu" mode starts at the title screen instead of after joining a world. */
+	public static boolean titleMode() {
+		return MODE.equals("modmenu");
+	}
+
+	public static void onStarted() {
+		if (ENABLED && titleMode() && step < 0) {
+			step = 0;
+			wait = 60;
+		}
+	}
 	private static final List<Supplier<Screen>> SCREENS = new ArrayList<>();
 	private static final List<String> NAMES = new ArrayList<>();
 	private static int step = -1;
@@ -31,7 +44,7 @@ public final class DevScreenshots {
 	}
 
 	public static void onJoin() {
-		if (ENABLED && step < 0) {
+		if (ENABLED && !titleMode() && step < 0) {
 			step = 0;
 			wait = 100;
 		}
