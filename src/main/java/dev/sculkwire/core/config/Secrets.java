@@ -22,7 +22,7 @@ import java.util.regex.Pattern;
  * Secret notifier settings (webhook URLs, tokens) in {@code secrets.json}, separate from the shareable
  * config. Values may reference environment variables as {@code ${env:NAME}}. Stored as plain text.
  */
-public final class Secrets {
+public final class Secrets implements dev.sculkwire.core.notify.SecretSource {
 	private static final Pattern ENV = Pattern.compile("\\$\\{env:([A-Za-z_][A-Za-z0-9_]*)}");
 
 	private final Path file;
@@ -71,6 +71,7 @@ public final class Secrets {
 	}
 
 	/** The stored value with ${env:NAME} references expanded. Empty string when missing. */
+	@Override
 	public String get(String notifierId, String key) {
 		String raw = raw(notifierId, key);
 		if (raw.isEmpty() || raw.indexOf("${env:") < 0) {
