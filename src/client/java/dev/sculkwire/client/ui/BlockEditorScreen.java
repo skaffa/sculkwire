@@ -67,6 +67,10 @@ public final class BlockEditorScreen extends Screen {
 	private static final int DIM = 0xFFA0A0A0;
 	private static final int DROP = 0xFFFFFFFF;
 
+	/** Mouse buttons as 26.x numbers them (left = 1, right = 3; not GLFW's 0 and 1). */
+	private static final int LEFT = com.mojang.blaze3d.platform.InputConstants.MOUSE_BUTTON_LEFT;
+	private static final int RIGHT = com.mojang.blaze3d.platform.InputConstants.MOUSE_BUTTON_RIGHT;
+
 	/** Set by the dev self-test so dropping a send does not open its popup. */
 	static boolean selfTest;
 
@@ -868,14 +872,27 @@ public final class BlockEditorScreen extends Screen {
 		return best;
 	}
 
+	private static final boolean DEBUG_MOUSE = false;
+	private int dragEvents;
+
+	private void dbg(String fmt, Object... args) {
+		if (DEBUG_MOUSE) {
+			Sculkwire.LOG.info("[blocks] " + fmt, args);
+		}
+	}
+
 	@Override
 	public boolean mouseClicked(MouseButtonEvent e, boolean doubleClick) {
 		double mx = e.x();
 		double my = e.y();
 		pressButton = e.button();
+		dragEvents = 0;
 		PalItem p = paletteAt(mx, my);
+		Hit dh = hitAt(mx, my);
+		dbg("press x={} y={} button={} palette={} hit={} (palW={} top={} bottom={} canvasX={} hits={})", (int) mx, (int) my,
+				e.button(), p == null ? null : p.label(), dh == null ? null : dh.kind(), palW, top, bottom, canvasX, hits.size());
 		if (p != null && !p.header()) {
-			if (e.button() == 0) {
+			if (e.button() == LEFT) {
 				pressed = p.payload();
 				pressedHit = null;
 				pressX = mx;
@@ -886,9 +903,9 @@ public final class BlockEditorScreen extends Screen {
 		}
 		Hit h = hitAt(mx, my);
 		if (h != null) {
-			if (e.button() == 1) {
+			if (e.button() == RIGHT) {
 				deleteAt(h);
-			} else if (e.button() == 0) {
+			} else if (e.button() == LEFT) {
 				pressedHit = h;
 				pressed = null;
 				pressX = mx;
@@ -902,7 +919,11 @@ public final class BlockEditorScreen extends Screen {
 
 	@Override
 	public boolean mouseDragged(MouseButtonEvent e, double dx, double dy) {
-		if (pressButton == 0 && (pressed != null || pressedHit != null)) {
+		if (dragEvents++ < 3 || dragEvents % 20 == 0) {
+			dbg("drag #{} x={} y={} button={} pressButton={} pressed={} pressedHit={} dragging={}", dragEvents, (int) e.x(), (int) e.y(),
+					e.button(), pressButton, pressed == null ? null : pressed.kind(), pressedHit == null ? null : pressedHit.kind(), dragging);
+		}
+		if (pressButton == LEFT && (pressed != null || pressedHit != null)) {
 			if (!dragging && Math.abs(e.x() - pressX) + Math.abs(e.y() - pressY) > 3) {
 				if (pressed == null) {
 					pressed = pickUp(pressedHit);
@@ -919,9 +940,12 @@ public final class BlockEditorScreen extends Screen {
 		boolean handled = pressed != null || pressedHit != null;
 		double mx = e.x();
 		double my = e.y();
+		dbg("release x={} y={} button={} dragging={} pressed={} dragEvents={}", (int) mx, (int) my, e.button(), dragging,
+				pressed == null ? null : pressed.kind(), dragEvents);
 		if (dragging && pressed != null) {
 			boolean overPalette = mx < palW + 2 && my > top && my < bottom;
 			Hit target = overPalette ? null : findDrop(pressed, mx, my);
+			dbg("drop target={}", target == null ? null : target.kind() + " index " + target.index());
 			if (target != null) {
 				drop(pressed, target);
 			} else if (!overPalette && restore != null) {
@@ -929,7 +953,7 @@ public final class BlockEditorScreen extends Screen {
 			}
 			restore = null;
 			recompile();
-		} else if (pressedHit != null && e.button() == 0) {
+		} else if (pressedHit != null && e.button() == LEFT) {
 			click(pressedHit, mx);
 		}
 		pressed = null;
@@ -1400,7 +1424,7 @@ public final class BlockEditorScreen extends Screen {
 	}
 
 	private void simulateDrag(double x1, double y1, double x2, double y2) {
-		MouseButtonInfo left = new MouseButtonInfo(0, 0);
+		MouseButtonInfo left = new MouseButtonInfo(LEFT, 0);
 		mouseClicked(new MouseButtonEvent(x1, y1, left), false);
 		for (int k = 1; k <= 6; k++) {
 			double x = x1 + (x2 - x1) * k / 6;
@@ -1412,7 +1436,7 @@ public final class BlockEditorScreen extends Screen {
 	}
 
 	private void simulateClick(double x, double y) {
-		MouseButtonInfo left = new MouseButtonInfo(0, 0);
+		MouseButtonInfo left = new MouseButtonInfo(LEFT, 0);
 		mouseClicked(new MouseButtonEvent(x, y, left), false);
 		mouseReleased(new MouseButtonEvent(x, y, left));
 		Sculkwire.LOG.info("blocktest: {}", Json.COMPACT.toJson(rule.branches));
