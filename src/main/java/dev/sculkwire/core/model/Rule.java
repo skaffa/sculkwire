@@ -27,8 +27,8 @@ public final class Rule {
 	public List<String> notifierIds() {
 		List<String> out = new ArrayList<>();
 		if (hasBranches()) {
-			for (Branch b : branches) {
-				if (b != null && b.sends != null) {
+			Branch.forEach(branches, b -> {
+				if (b.sends != null) {
 					for (Send s : b.sends) {
 						if (s != null && s.notifiers != null) {
 							for (String n : s.notifiers) {
@@ -39,7 +39,7 @@ public final class Rule {
 						}
 					}
 				}
-			}
+			});
 		} else if (targets != null) {
 			for (Target t : targets) {
 				if (!out.contains(t.notifier)) {

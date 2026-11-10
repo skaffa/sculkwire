@@ -465,6 +465,42 @@ class RuleEngineTest {
 	}
 
 	@Test
+	void nestedBlocksRunOnlyInsideTheirParent() {
+		Condition low = Condition.compare(Operand.signal("player.health"), "lt", Operand.value(6));
+		Condition night = Condition.compare(Operand.signal("world.is_night"), "is_true");
+		dev.sculkwire.core.model.Branch outer = dev.sculkwire.core.model.Branch.typed("if", low, send("low"));
+		outer.blocks = new java.util.ArrayList<>(List.of(
+				dev.sculkwire.core.model.Branch.typed("if", night, send("low at night")),
+				dev.sculkwire.core.model.Branch.typed("else", null, send("low by day")),
+				dev.sculkwire.core.model.Branch.typed("do", null, send("low done"))));
+		Rule r = new Rule();
+		r.name = "nested";
+		r.trigger = Trigger.event("custom");
+		r.branches = new java.util.ArrayList<>(List.of(outer,
+				dev.sculkwire.core.model.Branch.typed("else", null, send("fine"))));
+		TestWorld w = new TestWorld().set("player.health", 4).set("world.is_night", true).add(r).join();
+		assertTrue(w.engine.rule(r.id).errors.isEmpty(), w.engine.rule(r.id).errors.toString());
+		w.engine.post("custom", Map.of());
+		w.set("world.is_night", false).ticks(1);
+		w.engine.post("custom", Map.of());
+		w.set("player.health", 20).ticks(1);
+		w.engine.post("custom", Map.of());
+		List<String> titles = w.sent.stream().map(d -> d.notification().title(dev.sculkwire.core.template.OutputContext.PLAIN)).toList();
+		assertEquals(List.of("low", "low at night", "low done", "low", "low by day", "low done", "fine"), titles);
+		assertEquals(List.of(r.branches.get(1)), w.engine.previewRunning(w.engine.rule(r.id)));
+		assertEquals(List.of("phone"), r.notifierIds());
+
+		Rule bad = new Rule();
+		bad.name = "nested orphan else";
+		bad.trigger = Trigger.event("custom");
+		dev.sculkwire.core.model.Branch parent = dev.sculkwire.core.model.Branch.typed("if", low);
+		parent.blocks = new java.util.ArrayList<>(List.of(dev.sculkwire.core.model.Branch.typed("else", null, send("b"))));
+		bad.branches = new java.util.ArrayList<>(List.of(parent));
+		w.add(bad);
+		assertFalse(w.engine.rule(bad.id).errors.isEmpty());
+	}
+
+	@Test
 	void stateRulesOnlyRunInAWorld() {
 		Rule every = new Rule();
 		every.name = "every";

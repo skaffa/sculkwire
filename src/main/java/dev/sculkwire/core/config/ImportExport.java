@@ -135,8 +135,8 @@ public final class ImportExport {
 			}
 			r.targets = targets;
 			if (r.hasBranches()) {
-				for (dev.sculkwire.core.model.Branch b : r.branches) {
-					if (b != null && b.sends != null) {
+				dev.sculkwire.core.model.Branch.forEach(r.branches, b -> {
+					if (b.sends != null) {
 						for (dev.sculkwire.core.model.Send s : b.sends) {
 							if (s != null && s.notifiers != null) {
 								s.notifiers.replaceAll(n -> notifierMap == null ? null : notifierMap.get(n));
@@ -144,7 +144,7 @@ public final class ImportExport {
 							}
 						}
 					}
-				}
+				});
 			}
 			cfg.rules.add(r);
 			added.add(r);

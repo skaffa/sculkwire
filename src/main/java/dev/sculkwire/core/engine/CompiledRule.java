@@ -33,8 +33,12 @@ public final class CompiledRule {
 		}
 	}
 
-	/** A compiled script block; {@code type} is if, else_if, else or do (see {@code Branch}). */
-	public record CompiledBranch(String type, Cond when, List<CompiledTarget> targets) {
+	/**
+	 * A compiled script block; {@code type} is if, else_if, else or do (see {@code Branch}). {@code children}
+	 * run after its targets when it runs; {@code source} is the block it was compiled from.
+	 */
+	public record CompiledBranch(String type, Cond when, List<CompiledTarget> targets, List<CompiledBranch> children,
+			dev.sculkwire.core.model.Branch source) {
 	}
 
 	public final Rule rule;

@@ -292,53 +292,76 @@ public final class RuleEngine {
 		if (cr.branches.isEmpty()) {
 			return cr.targets;
 		}
-		List<Integer> ran = runningBlocks(cr, ctx);
+		List<CompiledRule.CompiledBranch> ran = runningBlocks(cr, ctx);
 		if (ran.isEmpty()) {
 			return null;
 		}
 		List<CompiledRule.CompiledTarget> out = new ArrayList<>();
-		for (int i : ran) {
-			out.addAll(cr.branches.get(i).targets());
+		for (CompiledRule.CompiledBranch b : ran) {
+			out.addAll(b.targets());
 		}
 		return out;
 	}
 
-	/** Indexes of the script blocks that run for these values. */
-	private static List<Integer> runningBlocks(CompiledRule cr, EvalContext ctx) {
-		List<Integer> ran = new ArrayList<>();
-		boolean chainMatched = false;
-		for (int i = 0; i < cr.branches.size(); i++) {
-			CompiledRule.CompiledBranch b = cr.branches.get(i);
-			switch (b.type()) {
-				case "if" -> {
-					chainMatched = b.when() != null && b.when().test(ctx);
-					if (chainMatched) {
-						ran.add(i);
-					}
-				}
-				case "else_if" -> {
-					if (!chainMatched && b.when() != null && b.when().test(ctx)) {
-						chainMatched = true;
-						ran.add(i);
-					}
-				}
-				case "else" -> {
-					if (!chainMatched) {
-						ran.add(i);
-					}
-					chainMatched = true;
-				}
-				default -> {
-					ran.add(i);
-					chainMatched = true;
-				}
-			}
-		}
+	/** The script blocks that run for these values, nested ones included, in the order they run. */
+	private static List<CompiledRule.CompiledBranch> runningBlocks(CompiledRule cr, EvalContext ctx) {
+		List<CompiledRule.CompiledBranch> ran = new ArrayList<>();
+		run(cr.branches, ctx, ran);
 		return ran;
 	}
 
-	/** Script blocks that would run with the current or sample values (for the block editor). */
+	private static void run(List<CompiledRule.CompiledBranch> blocks, EvalContext ctx, List<CompiledRule.CompiledBranch> ran) {
+		boolean chainMatched = false;
+		for (CompiledRule.CompiledBranch b : blocks) {
+			boolean runs;
+			switch (b.type()) {
+				case "if" -> {
+					chainMatched = b.when() != null && b.when().test(ctx);
+					runs = chainMatched;
+				}
+				case "else_if" -> {
+					runs = !chainMatched && b.when() != null && b.when().test(ctx);
+					chainMatched |= runs;
+				}
+				case "else" -> {
+					runs = !chainMatched;
+					chainMatched = true;
+				}
+				default -> {
+					runs = true;
+					chainMatched = true;
+				}
+			}
+			if (runs) {
+				ran.add(b);
+				run(b.children(), ctx, ran);
+			}
+		}
+	}
+
+	/** Indexes of the top-level script blocks that would run with the current or sample values. */
 	public List<Integer> previewBlocks(CompiledRule cr) {
+		List<Integer> out = new ArrayList<>();
+		for (CompiledRule.CompiledBranch b : previewRan(cr)) {
+			for (int i = 0; i < cr.branches.size(); i++) {
+				if (cr.branches.get(i) == b) {
+					out.add(i);
+				}
+			}
+		}
+		return out;
+	}
+
+	/** The blocks (nested ones included) that would run with the current or sample values, for the block editor. */
+	public List<dev.sculkwire.core.model.Branch> previewRunning(CompiledRule cr) {
+		List<dev.sculkwire.core.model.Branch> out = new ArrayList<>();
+		for (CompiledRule.CompiledBranch b : previewRan(cr)) {
+			out.add(b.source());
+		}
+		return out;
+	}
+
+	private List<CompiledRule.CompiledBranch> previewRan(CompiledRule cr) {
 		try {
 			return runningBlocks(cr, previewContext(cr, new RuleState()));
 		} catch (RuntimeException e) {

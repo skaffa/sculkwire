@@ -21,7 +21,8 @@ First release.
   grace, and scope by server, world or dimension.
 - Templates with filters, escaped per destination (JSON, URL, header, Discord markdown, Telegram HTML).
 - Scratch-like block editor for events: a *when* block, then a script of send blocks and if / else if /
-  else blocks (several chains allowed) with and / or / not conditions. Each send block picks its own
+  else blocks (several chains allowed, and nested inside each other to any depth) with and / or / not
+  conditions. Each send block picks its own
   message and, through clickable notifier chips, its own notifiers. The palette shows every value with
   its live reading.
 - In-game editor with message preview, delivery history, 19 presets and import/export.

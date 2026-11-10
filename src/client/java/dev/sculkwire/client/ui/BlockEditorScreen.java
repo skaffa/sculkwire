@@ -42,7 +42,8 @@ import java.util.Map;
 
 /**
  * The event editor as Scratch-like blocks. A "when" hat (the trigger) is followed by a script of blocks
- * that run top to bottom: plain "send" blocks, and if / else if / else blocks that hold sends. Conditions
+ * that run top to bottom: plain "send" blocks, and if / else if / else blocks that hold sends and other
+ * blocks (nested to any depth). Conditions
  * are and/or/not blocks around comparisons. Drag blocks and live values from the palette; click a block
  * to edit it (click a notifier on a send block to switch it on or off); right-click or drag a block back
  * to the palette to delete it.
@@ -111,7 +112,9 @@ public final class BlockEditorScreen extends Screen {
 		HAT, BRANCH, BRANCH_LABEL, SEND, CHIP, COND, SLOT, GROUP_LABEL, BRANCH_DROP, SEND_DROP, GROUP_ADD, EMPTY_CANVAS
 	}
 
-	private record Hit(HKind kind, int x, int y, int w, int h, Branch branch, int index, Send send, Holder holder, String id) {
+	/** A clickable part or drop zone; {@code list} is the block list a BRANCH_DROP zone inserts into. */
+	private record Hit(HKind kind, int x, int y, int w, int h, Branch branch, int index, Send send, Holder holder, String id,
+			List<Branch> list) {
 		boolean contains(double px, double py, int pad) {
 			return px >= x - pad && px < x + w + pad && py >= y - pad && py < y + h + pad;
 		}
@@ -133,7 +136,7 @@ public final class BlockEditorScreen extends Screen {
 	private final String originalId;
 	private Rule rule;
 	private CompiledRule compiled;
-	private List<Integer> running = List.of();
+	private List<Branch> running = List.of();
 	private final Deque<String> undo = new ArrayDeque<>();
 
 	private int palW;
@@ -204,19 +207,83 @@ public final class BlockEditorScreen extends Screen {
 			rule.branches = new ArrayList<>();
 			rule.branches.add(Branch.typed(Branch.DO, null, s));
 		}
-		List<String> types = new ArrayList<>();
-		for (int i = 0; i < rule.branches.size(); i++) {
-			types.add(Branch.typeOf(rule.branches, i));
+		fixTypes(rule.branches);
+	}
+
+	private static void fixTypes(List<Branch> blocks) {
+		if (blocks == null) {
+			return;
 		}
-		for (int i = 0; i < rule.branches.size(); i++) {
-			rule.branches.get(i).type = types.get(i);
+		List<String> types = new ArrayList<>();
+		for (int i = 0; i < blocks.size(); i++) {
+			types.add(Branch.typeOf(blocks, i));
+		}
+		for (int i = 0; i < blocks.size(); i++) {
+			blocks.get(i).type = types.get(i);
+			fixTypes(blocks.get(i).blocks);
 		}
 	}
 
 	private void cleanup() {
-		if (rule.branches != null) {
-			rule.branches.removeIf(b -> Branch.DO.equals(b.type) && b.sends.isEmpty());
+		prune(rule.branches);
+	}
+
+	/** Drops empty send-only blocks, at every depth. */
+	private static void prune(List<Branch> blocks) {
+		if (blocks == null) {
+			return;
 		}
+		blocks.removeIf(b -> Branch.DO.equals(b.type) && b.sends.isEmpty() && b.children().isEmpty());
+		for (Branch b : blocks) {
+			prune(b.blocks);
+		}
+	}
+
+	private boolean runs(Branch b) {
+		for (Branch r : running) {
+			if (r == b) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** The list that holds {@code b} (top level or inside another block). */
+	private List<Branch> containerOf(Branch b) {
+		List<Branch> found = findContainer(rule.branches, b);
+		return found != null ? found : rule.branches;
+	}
+
+	private static List<Branch> findContainer(List<Branch> blocks, Branch b) {
+		if (blocks == null) {
+			return null;
+		}
+		for (Branch x : blocks) {
+			if (x == b) {
+				return blocks;
+			}
+		}
+		for (Branch x : blocks) {
+			List<Branch> inner = findContainer(x.blocks, b);
+			if (inner != null) {
+				return inner;
+			}
+		}
+		return null;
+	}
+
+	/** True when {@code list} is the nested list of {@code b} or of a block inside it. */
+	private static boolean inside(Branch b, List<Branch> list) {
+		return b != null && list != null && b.blocks != null && (b.blocks == list || findContainerList(b.blocks, list));
+	}
+
+	private static boolean findContainerList(List<Branch> blocks, List<Branch> list) {
+		for (Branch x : blocks) {
+			if (x.blocks != null && (x.blocks == list || findContainerList(x.blocks, list))) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private void recompile() {
@@ -224,7 +291,7 @@ public final class BlockEditorScreen extends Screen {
 		compiled = rt.engine.compiler().compile(rule, rt.config());
 		running = List.of();
 		if (compiled.errors.isEmpty()) {
-			running = rt.engine.previewBlocks(compiled);
+			running = rt.engine.previewRunning(compiled);
 		}
 	}
 
@@ -503,61 +570,123 @@ public final class BlockEditorScreen extends Screen {
 		maxW = Math.max(maxW, hatW);
 		y += hatH + 3;
 
-		List<Branch> blocks = rule.branches == null ? List.of() : rule.branches;
+		if (rule.branches == null) {
+			rule.branches = new ArrayList<>();
+		}
+		List<Branch> blocks = rule.branches;
+		progX = x0;
+		int[] mw = {maxW};
+		y = drawBlocks(g, blocks, x0, y, mw);
+		maxW = mw[0];
+		if (blocks.isEmpty()) {
+			g.text(font, "Drag a 'send message' or 'if … then' block here", x0 + 4, y + 6, 0xA0FFFFFF, false);
+			hits.add(zone(HKind.EMPTY_CANVAS, x0, y, 280, 34, blocks, 0));
+			y += 34;
+		}
+		contentH = y - startY + 30;
+		contentW = maxW + 30;
+	}
+
+	private static final int ARM = 12;
+	/** Left edge of the script, for measuring how wide it is. */
+	private int progX;
+	private static final String EMPTY_BODY = "drop blocks here";
+
+	/** Size of a control block as drawn. */
+	private record Box(int w, int headerH, int bodyH, int labelW, int[] expr, int inner) {
+	}
+
+	private static String labelOf(Branch b) {
+		return switch (b.type) {
+			case Branch.IF -> "if";
+			case Branch.ELSE_IF -> "else if";
+			case Branch.ELSE -> "else";
+			default -> b.type;
+		};
+	}
+
+	private Box box(Branch b) {
+		int labelW = font.width(labelOf(b));
+		boolean conditional = b.conditional();
+		if (conditional && b.when == null) {
+			b.when = slot();
+		}
+		int[] expr = conditional ? measure(b.when) : new int[] {0, 0};
+		int headerH = Math.max(20, expr[1] + 6);
+		int headerW = conditional ? 8 + labelW + 6 + expr[0] + 6 + font.width("then") + 10 : labelW + 20;
+		int bodyH = 4;
+		int inner = 0;
+		for (Send s : b.sends) {
+			bodyH += 21;
+			inner = Math.max(inner, sendWidth(s));
+		}
+		List<Branch> kids = b.children();
+		if (!kids.isEmpty()) {
+			int[] k = listSize(kids);
+			bodyH += k[1];
+			inner = Math.max(inner, k[0]);
+		}
+		if (b.sends.isEmpty() && kids.isEmpty()) {
+			bodyH += 16;
+			inner = font.width(EMPTY_BODY) + 12;
+		}
+		int w = Math.max(Math.max(headerW, ARM + inner + 10), 130);
+		return new Box(w, headerH, bodyH, labelW, expr, inner);
+	}
+
+	/** {width, height} of a list of blocks as {@link #drawBlocks} draws it (width without the ◀ markers). */
+	private int[] listSize(List<Branch> blocks) {
+		int w = 0;
+		int h = 0;
+		for (Branch b : blocks) {
+			if (Branch.DO.equals(b.type)) {
+				for (Send s : b.sends) {
+					w = Math.max(w, sendWidth(s));
+				}
+				h += b.sends.size() * 21 + 2;
+			} else {
+				Box bx = box(b);
+				w = Math.max(w, bx.w());
+				h += bx.headerH() + bx.bodyH() + 13;
+			}
+		}
+		return new int[] {w, h};
+	}
+
+	/** Draws a list of blocks from (x0, y), nested blocks included; returns the y below it. */
+	private int drawBlocks(GuiGraphicsExtractor g, List<Branch> blocks, int x0, int y, int[] maxW) {
 		for (int i = 0; i < blocks.size(); i++) {
 			Branch b = blocks.get(i);
-			hits.add(hit(HKind.BRANCH_DROP, x0, y - 4, 220, 8, null, i, null, null, null));
+			hits.add(zone(HKind.BRANCH_DROP, x0, y - 4, 220, 8, blocks, i));
 			if (Branch.DO.equals(b.type)) {
 				for (int j = 0; j < b.sends.size(); j++) {
 					hits.add(hit(HKind.SEND_DROP, x0, y - 3, 160, 5, b, j, null, null, null));
 					int w = drawSend(g, b, j, x0, y);
-					if (running.contains(i)) {
+					if (runs(b)) {
 						g.text(font, "◀", x0 + w + 4, y + 5, 0xFF55DD77, false);
 					}
-					maxW = Math.max(maxW, w + 20);
+					maxW[0] = Math.max(maxW[0], x0 - progX + w + 20);
 					y += 21;
 				}
 				hits.add(hit(HKind.SEND_DROP, x0, y - 3, 160, 5, b, b.sends.size(), null, null, null));
 				y += 2;
 				continue;
 			}
-			String label = switch (b.type) {
-				case Branch.IF -> "if";
-				case Branch.ELSE_IF -> "else if";
-				case Branch.ELSE -> "else";
-				default -> b.type;
-			};
-			int labelW = font.width(label);
+			String label = labelOf(b);
 			boolean conditional = b.conditional();
-			if (conditional && b.when == null) {
-				b.when = slot();
-			}
-			int[] expr = conditional ? measure(b.when) : new int[] {0, 0};
-			int headerH = Math.max(20, expr[1] + 6);
-			int headerW = conditional ? 8 + labelW + 6 + expr[0] + 6 + font.width("then") + 10 : labelW + 20;
-			int[] sendW = new int[b.sends.size()];
-			int bodyH = 4;
-			int maxSendW = 0;
-			for (int j = 0; j < b.sends.size(); j++) {
-				sendW[j] = sendWidth(b.sends.get(j));
-				bodyH += 21;
-				maxSendW = Math.max(maxSendW, sendW[j]);
-			}
-			if (b.sends.isEmpty()) {
-				bodyH += 16;
-				maxSendW = font.width("drop a send block here") + 12;
-			}
-			int arm = 12;
-			int w = Math.max(Math.max(headerW, arm + maxSendW + 10), 130);
+			Box bx = box(b);
+			int headerH = bx.headerH();
+			int bodyH = bx.bodyH();
+			int w = bx.w();
 			block(g, x0, y, w, headerH, CTRL, CTRL_B);
-			block(g, x0, y + headerH - 1, arm, bodyH + 2, CTRL, CTRL_B);
+			block(g, x0, y + headerH - 1, ARM, bodyH + 2, CTRL, CTRL_B);
 			block(g, x0, y + headerH + bodyH, Math.min(w, 90), 10, CTRL, CTRL_B);
-			g.fill(x0 + 1, y + headerH - 1, x0 + arm - 1, y + headerH + bodyH + 1, CTRL);
+			g.fill(x0 + 1, y + headerH - 1, x0 + ARM - 1, y + headerH + bodyH + 1, CTRL);
 			g.text(font, label, x0 + 8, y + (headerH - 8) / 2, TEXT, true);
 			hits.add(hit(HKind.BRANCH, x0, y, w, headerH, b, i, null, null, null));
 			if (conditional) {
-				hits.add(hit(HKind.BRANCH_LABEL, x0 + 4, y, labelW + 8, headerH, b, i, null, null, null));
-				int ex = x0 + 8 + labelW + 6;
+				hits.add(hit(HKind.BRANCH_LABEL, x0 + 4, y, bx.labelW() + 8, headerH, b, i, null, null, null));
+				int ex = x0 + 8 + bx.labelW() + 6;
 				drawExpr(g, b.when, new Holder() {
 					@Override
 					public Condition get() {
@@ -568,41 +697,48 @@ public final class BlockEditorScreen extends Screen {
 					public void set(Condition c) {
 						b.when = c;
 					}
-				}, ex, y + (headerH - expr[1]) / 2);
-				g.text(font, "then", ex + expr[0] + 6, y + (headerH - 8) / 2, TEXT, true);
+				}, ex, y + (headerH - bx.expr()[1]) / 2);
+				g.text(font, "then", ex + bx.expr()[0] + 6, y + (headerH - 8) / 2, TEXT, true);
 			}
-			if (running.contains(i)) {
+			if (runs(b)) {
 				g.text(font, "◀ now", x0 + w + 6, y + (headerH - 8) / 2, 0xFF55DD77, false);
 			}
 			int sy = y + headerH + 2;
-			int sx = x0 + arm + 2;
+			int sx = x0 + ARM + 2;
 			for (int j = 0; j < b.sends.size(); j++) {
-				hits.add(hit(HKind.SEND_DROP, sx, sy - 3, Math.max(80, sendW[j]), 5, b, j, null, null, null));
+				hits.add(hit(HKind.SEND_DROP, sx, sy - 3, Math.max(80, sendWidth(b.sends.get(j))), 5, b, j, null, null, null));
 				drawSend(g, b, j, sx, sy);
 				sy += 21;
 			}
-			if (b.sends.isEmpty()) {
-				outline(g, sx, sy, maxSendW, 14, 0x60FFFFFF);
-				g.text(font, "drop a send block here", sx + 6, sy + 3, 0xA0FFFFFF, false);
-				hits.add(hit(HKind.SEND_DROP, sx, sy, maxSendW, 14, b, 0, null, null, null));
+			if (b.blocks == null) {
+				b.blocks = new ArrayList<>();
+			}
+			if (b.sends.isEmpty() && b.blocks.isEmpty()) {
+				outline(g, sx, sy, bx.inner(), 14, 0x60FFFFFF);
+				g.text(font, EMPTY_BODY, sx + 6, sy + 3, 0xA0FFFFFF, false);
+				hits.add(hit(HKind.SEND_DROP, sx, sy, bx.inner(), 14, b, 0, null, null, null));
+				hits.add(zone(HKind.BRANCH_DROP, sx, sy, bx.inner(), 14, b.blocks, 0));
 			} else {
 				hits.add(hit(HKind.SEND_DROP, sx, sy - 3, 80, 6, b, b.sends.size(), null, null, null));
+				if (b.blocks.isEmpty()) {
+					hits.add(zone(HKind.BRANCH_DROP, sx, sy - 3, 160, 6, b.blocks, 0));
+				} else {
+					drawBlocks(g, b.blocks, sx, sy, maxW);
+				}
 			}
-			maxW = Math.max(maxW, w + 50);
+			maxW[0] = Math.max(maxW[0], x0 - progX + w + 50);
 			y += headerH + bodyH + 10 + 3;
 		}
-		hits.add(hit(HKind.BRANCH_DROP, x0, y - 4, 220, 10, null, blocks.size(), null, null, null));
-		if (blocks.isEmpty()) {
-			g.text(font, "Drag a 'send message' or 'if … then' block here", x0 + 4, y + 6, 0xA0FFFFFF, false);
-			hits.add(hit(HKind.EMPTY_CANVAS, x0, y, 280, 34, null, 0, null, null, null));
-			y += 34;
-		}
-		contentH = y - startY + 30;
-		contentW = maxW + 30;
+		hits.add(zone(HKind.BRANCH_DROP, x0, y - 4, 220, 10, blocks, blocks.size()));
+		return y;
+	}
+
+	private static Hit zone(HKind k, int x, int y, int w, int h, List<Branch> list, int index) {
+		return new Hit(k, x, y, w, h, null, index, null, null, null, list);
 	}
 
 	private static Hit hit(HKind k, int x, int y, int w, int h, Branch b, int index, Send s, Holder holder, String id) {
-		return new Hit(k, x, y, w, h, b, index, s, holder, id);
+		return new Hit(k, x, y, w, h, b, index, s, holder, id, null);
 	}
 
 	private String sendLabel(Send s) {
@@ -1002,16 +1138,17 @@ public final class BlockEditorScreen extends Screen {
 			case SEND, CHIP -> {
 				pushUndo();
 				Branch b = h.branch();
-				int bi = rule.branches.indexOf(b);
+				List<Branch> list = containerOf(b);
+				int bi = list.indexOf(b);
 				int idx = h.index();
 				Send s = b.sends.remove(idx);
 				boolean removedBlock = Branch.DO.equals(b.type) && b.sends.isEmpty();
 				if (removedBlock) {
-					rule.branches.remove(b);
+					list.remove(b);
 				}
 				restore = () -> {
 					if (removedBlock) {
-						rule.branches.add(Math.min(bi, rule.branches.size()), b);
+						list.add(Math.min(bi, list.size()), b);
 					}
 					b.sends.add(Math.min(idx, b.sends.size()), s);
 				};
@@ -1019,9 +1156,10 @@ public final class BlockEditorScreen extends Screen {
 			}
 			case BRANCH, BRANCH_LABEL -> {
 				pushUndo();
-				int idx = rule.branches.indexOf(h.branch());
-				Branch b = rule.branches.remove(idx);
-				restore = () -> rule.branches.add(Math.min(idx, rule.branches.size()), b);
+				List<Branch> list = containerOf(h.branch());
+				int idx = list.indexOf(h.branch());
+				Branch b = list.remove(idx);
+				restore = () -> list.add(Math.min(idx, list.size()), b);
 				return new Payload(PKind.MOVE_BRANCH, b, b.type.replace('_', ' '), CTRL);
 			}
 			case COND -> {
@@ -1045,13 +1183,19 @@ public final class BlockEditorScreen extends Screen {
 		}
 	}
 
-	private Hit nearestBranchDrop(double my, double max) {
+	/**
+	 * The block drop zone nearest to the mouse. Zones further right than the mouse (inside a block) count as
+	 * further away, so moving left puts a block after its parent instead of inside it.
+	 */
+	private Hit nearestBranchDrop(Payload p, double mx, double my, double max) {
+		Branch moving = p.kind() == PKind.MOVE_BRANCH ? (Branch) p.obj() : null;
 		Hit best = null;
 		double bestD = max;
 		for (Hit h : hits) {
-			if (h.kind() == HKind.BRANCH_DROP) {
-				double d = Math.abs(my - (h.y() + h.h() / 2.0));
-				if (d < bestD) {
+			if (h.kind() == HKind.BRANCH_DROP && !inside(moving, h.list())) {
+				double left = h.x() - 8;
+				double d = Math.abs(my - (h.y() + h.h() / 2.0)) + (mx < left ? (left - mx) * 2 : 0);
+				if (d < bestD || (d == bestD && best != null && h.x() > best.x())) {
 					bestD = d;
 					best = h;
 				}
@@ -1065,7 +1209,7 @@ public final class BlockEditorScreen extends Screen {
 			return null;
 		}
 		if (p.isBranch()) {
-			return nearestBranchDrop(my, 80);
+			return nearestBranchDrop(p, mx, my, 80);
 		}
 		if (p.isSend()) {
 			for (Hit h : hits) {
@@ -1088,7 +1232,7 @@ public final class BlockEditorScreen extends Screen {
 					return h;
 				}
 			}
-			return nearestBranchDrop(my, 40);
+			return nearestBranchDrop(p, mx, my, 40);
 		}
 		Hit best = null;
 		for (Hit h : hits) {
@@ -1167,14 +1311,23 @@ public final class BlockEditorScreen extends Screen {
 				case ELSE_IF -> Branch.typed(Branch.ELSE_IF, slot());
 				default -> Branch.typed(Branch.IF, slot());
 			};
-			rule.branches.add(Math.min(Math.max(0, target.index()), rule.branches.size()), b);
+			List<Branch> list = target.list() != null ? target.list() : rule.branches;
+			if (inside(b, list)) {
+				if (restore != null) {
+					restore.run();
+				}
+				return;
+			}
+			list.add(Math.min(Math.max(0, target.index()), list.size()), b);
+			fixTypes(list);
 			return;
 		}
 		if (p.isSend()) {
 			Send s = p.kind() == PKind.MOVE_SEND ? (Send) p.obj() : newSend();
 			if (target.kind() == HKind.EMPTY_CANVAS || target.kind() == HKind.BRANCH_DROP) {
-				int idx = target.kind() == HKind.EMPTY_CANVAS ? rule.branches.size() : target.index();
-				rule.branches.add(Math.min(idx, rule.branches.size()), Branch.typed(Branch.DO, null, s));
+				List<Branch> list = target.list() != null ? target.list() : rule.branches;
+				int idx = target.kind() == HKind.EMPTY_CANVAS ? list.size() : target.index();
+				list.add(Math.min(idx, list.size()), Branch.typed(Branch.DO, null, s));
 			} else {
 				Branch b = target.branch();
 				b.sends.add(Math.min(target.index(), b.sends.size()), s);
@@ -1292,7 +1445,7 @@ public final class BlockEditorScreen extends Screen {
 			}
 			case BRANCH, BRANCH_LABEL -> {
 				pushUndo();
-				rule.branches.remove(h.branch());
+				containerOf(h.branch()).remove(h.branch());
 			}
 			case COND -> {
 				pushUndo();
@@ -1326,6 +1479,11 @@ public final class BlockEditorScreen extends Screen {
 			rule.name = isNew ? "New event" : originalId;
 		}
 		cleanup();
+		Branch.forEach(rule.branches, b -> {
+			if (b.blocks != null && b.blocks.isEmpty()) {
+				b.blocks = null;
+			}
+		});
 		if (rule.hasBranches()) {
 			rule.message = MessageTemplate.of("", "");
 			rule.targets = new ArrayList<>();
@@ -1383,6 +1541,12 @@ public final class BlockEditorScreen extends Screen {
 			Hit lastDrop = ed[0].last(HKind.BRANCH_DROP);
 			ed[0].simulateDragPalette("else", lastDrop.x() + 30, lastDrop.y() + lastDrop.h() / 2.0);
 		});
+		DevScreenshots.addAction("bt-9-nested-if", () -> {
+			Hit inner = ed[0].firstNestedZone();
+			if (inner != null) {
+				ed[0].simulateDragPalette("if … then", inner.x() + 20, inner.y() + inner.h() / 2.0);
+			}
+		});
 		DevScreenshots.addAction("bt-8-move-send-down", () -> {
 			Hit send = ed[0].first(HKind.SEND);
 			Hit lastDrop = ed[0].last(HKind.BRANCH_DROP);
@@ -1409,6 +1573,15 @@ public final class BlockEditorScreen extends Screen {
 		return out;
 	}
 
+	private Hit firstNestedZone() {
+		for (Hit h : hits) {
+			if (h.kind() == HKind.BRANCH_DROP && h.list() != null && h.list() != rule.branches) {
+				return h;
+			}
+		}
+		return null;
+	}
+
 	private Hit firstInsideIf() {
 		for (Hit h : hits) {
 			if (h.kind() == HKind.SEND_DROP && h.branch() != null && h.branch().conditional()) {
@@ -1419,9 +1592,15 @@ public final class BlockEditorScreen extends Screen {
 	}
 
 	private void simulateDragPalette(String label, double toX, double toY) {
-		int y0 = top + 4 - (int) palScroll;
 		for (int i = 0; i < palette.size(); i++) {
 			if (palette.get(i).label().equals(label) && !palette.get(i).header()) {
+				// Scroll the item into view first: in a small window it can be below the palette's bottom edge.
+				int y0 = top + 4 - (int) palScroll;
+				int itemY = y0 + palPos.get(i)[0] + 5;
+				if (itemY > bottom - 4 || itemY < top + 4) {
+					palScroll = Math.max(0, palPos.get(i)[0] - 20);
+					y0 = top + 4 - (int) palScroll;
+				}
 				simulateDrag(10, y0 + palPos.get(i)[0] + 5, toX, toY);
 				return;
 			}

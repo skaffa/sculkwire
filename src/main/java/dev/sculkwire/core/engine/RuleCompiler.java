@@ -213,13 +213,36 @@ public final class RuleCompiler {
 		return cr;
 	}
 
+	/** Deepest nesting of blocks inside blocks that is accepted. */
+	private static final int MAX_DEPTH = 16;
+
 	private void compileBranches(Rule rule, SculkwireConfig cfg, Env env) {
 		CompiledRule cr = env.cr;
-		boolean anyTarget = false;
+		boolean[] anyTarget = {false};
+		cr.branches.addAll(compileBlocks(rule.branches, cfg, env, anyTarget, 0));
+		if (!anyTarget[0]) {
+			cr.warnings.add("No notifiers selected: this event will not send anything");
+		}
+	}
+
+	private List<CompiledRule.CompiledBranch> compileBlocks(List<Branch> blocks, SculkwireConfig cfg, Env env, boolean[] anyTarget,
+			int depth) {
+		CompiledRule cr = env.cr;
+		List<CompiledRule.CompiledBranch> out = new ArrayList<>();
+		if (blocks == null || blocks.isEmpty()) {
+			return out;
+		}
+		if (depth > MAX_DEPTH) {
+			cr.errors.add("Blocks are nested more than " + MAX_DEPTH + " levels deep");
+			return out;
+		}
 		String prev = null;
-		for (int i = 0; i < rule.branches.size(); i++) {
-			Branch b = rule.branches.get(i);
-			String type = Branch.typeOf(rule.branches, i);
+		for (int i = 0; i < blocks.size(); i++) {
+			Branch b = blocks.get(i);
+			if (b == null) {
+				continue;
+			}
+			String type = Branch.typeOf(blocks, i);
 			String label = switch (type) {
 				case Branch.IF -> "if";
 				case Branch.ELSE_IF -> "else if";
@@ -250,11 +273,11 @@ public final class RuleCompiler {
 			}
 			prev = type;
 			List<CompiledRule.CompiledTarget> targets = new ArrayList<>();
-			if (b.sends == null || b.sends.isEmpty()) {
+			if ((b.sends == null || b.sends.isEmpty()) && b.children().isEmpty()) {
 				if (!type.equals(Branch.DO)) {
 					cr.warnings.add("The '" + label + "' block sends nothing");
 				}
-			} else {
+			} else if (b.sends != null) {
 				for (Send s : b.sends) {
 					MessageTemplate m = MessageTemplate.of("", "").merge(s.message);
 					if (isBlank(m.title) && isBlank(m.body)) {
@@ -278,17 +301,16 @@ public final class RuleCompiler {
 						if (cfg.notifier(n) == null) {
 							cr.warnings.add("Notifier '" + n + "' does not exist");
 						}
-						anyTarget = true;
+						anyTarget[0] = true;
 						targets.add(new CompiledRule.CompiledTarget(n, title, body, click, Priority.parse(m.priority),
 								m.tags == null ? List.of() : List.copyOf(m.tags)));
 					}
 				}
 			}
-			cr.branches.add(new CompiledRule.CompiledBranch(type, when, targets));
+			List<CompiledRule.CompiledBranch> children = compileBlocks(b.blocks, cfg, env, anyTarget, depth + 1);
+			out.add(new CompiledRule.CompiledBranch(type, when, targets, children, b));
 		}
-		if (!anyTarget) {
-			cr.warnings.add("No notifiers selected: this event will not send anything");
-		}
+		return out;
 	}
 
 	/** Returns the value type of an operand, or NONE when unknown. */

@@ -2,6 +2,7 @@ package dev.sculkwire.core.model;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * One block of an event's script. Blocks run top to bottom:
@@ -11,6 +12,8 @@ import java.util.List;
  * <li>{@code else}: runs when no earlier block of its chain ran; ends the chain.</li>
  * <li>{@code do}: plain sends that always run (they also end a chain).</li>
  * </ul>
+ * A block can hold other blocks ({@code blocks}): they run after its own sends, only when the block itself
+ * runs, and follow the same rules among themselves.
  * Older configs have no {@code type}: the first conditional block is {@code if}, later ones {@code else_if},
  * and a block without a condition is {@code else} (or {@code do} when it is the only block).
  */
@@ -23,6 +26,8 @@ public final class Branch {
 	public String type;
 	public Condition when;
 	public List<Send> sends = new ArrayList<>();
+	/** Blocks nested inside this one; null or empty when there are none. */
+	public List<Branch> blocks;
 
 	public static Branch of(Condition when, Send... sends) {
 		Branch b = new Branch();
@@ -47,6 +52,24 @@ public final class Branch {
 			return index == 0 ? IF : ELSE_IF;
 		}
 		return blocks.size() == 1 ? DO : ELSE;
+	}
+
+	/** The nested blocks, never null. */
+	public List<Branch> children() {
+		return blocks == null ? List.of() : blocks;
+	}
+
+	/** Visits every block in {@code list} and, depth first, the blocks nested in it. */
+	public static void forEach(List<Branch> list, Consumer<Branch> action) {
+		if (list == null) {
+			return;
+		}
+		for (Branch b : list) {
+			if (b != null) {
+				action.accept(b);
+				forEach(b.blocks, action);
+			}
+		}
 	}
 
 	public boolean conditional() {

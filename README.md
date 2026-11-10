@@ -35,7 +35,7 @@ request, and only while an event uses a statistic (you can turn that off).
 - **Variables**: use `{player.name}`, `{msg.text}`, `{player.health|hearts}` or any tracked value in
   messages and conditions, plus your own variables (for example a `friends` list).
 - **Block editor**: events are built from Scratch-like blocks: a *when* block, then *if / else if / else*
-  with *and / or / not*, and *send* blocks that each pick their own message and notifiers. The palette lists
+  (nested as deep as you like) with *and / or / not*, and *send* blocks that each pick their own message and notifiers. The palette lists
   every value with its live reading, so you can drag one straight into a condition.
 - **Editor in game**: `/sw`, a key binding, or the Configure button in [Mod Menu](https://modrinth.com/mod/modmenu)
   opens it. It also has message previews and a delivery history. Everything is plain JSON in
@@ -73,8 +73,9 @@ An event has a **trigger** (the *when* block) and a script of blocks that run fr
 - **else if** (after an if) runs when nothing above it in the chain ran and its condition is true.
 - **else** runs when nothing above it in the chain ran.
 
-You can stack several sends and several if-chains in one event. Each send block lists your notifiers as
-chips: click a chip to include or leave out that notifier for that message.
+You can stack several sends and several if-chains in one event, and put if blocks inside if, else if and
+else blocks (as deep as you like): a nested block only runs when the block around it runs. Each send block
+lists your notifiers as chips: click a chip to include or leave out that notifier for that message.
 
 In the block editor:
 
