@@ -36,6 +36,8 @@ public final class BuiltinEvents {
 						PayloadVar.of("msg.text", STRING, "Steve, come look at this", "Message text (formatting removed)"),
 						PayloadVar.of("msg.full", STRING, "<Alex> Steve, come look at this", "The whole line as shown in chat"),
 						PayloadVar.of("msg.sender", STRING, "Alex", "Sender name (player chat, or extracted with the sender regex)"),
+						PayloadVar.of("msg.has_sender", BOOL, true,
+								"It came from a player: player chat, or a name found with the sender regex"),
 						PayloadVar.of("msg.sender_uuid", STRING, "", "Sender UUID (player chat only)"),
 						PayloadVar.of("msg.kind", ENUM, "player", "player or system"),
 						PayloadVar.of("msg.is_own", BOOL, false, "You sent it")),

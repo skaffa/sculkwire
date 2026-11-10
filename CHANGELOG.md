@@ -25,8 +25,10 @@ First release.
   conditions. Each send block picks its own
   message and, through clickable notifier chips, its own notifiers. The palette shows every value with
   its live reading.
-- In-game editor with message preview, delivery history, 19 presets and import/export.
+- In-game editor with message preview, delivery history, 20 presets and import/export.
 - `session.actively_playing` value, to hold notifications while you are at the keyboard.
+- `msg.has_sender` on chat messages (true for player chat, or when the sender regex found a name), and a
+  *Player chat* preset that skips server messages such as game mode changes.
 - Advancements: `player.advancement` now has the type (task, goal, challenge); new `chat.advancement`
   event for any player's announced advancement, read from the message's translation key.
 - Statistics: `player.stat` with a category dropdown and a searchable statistic picker. Sculkwire asks the

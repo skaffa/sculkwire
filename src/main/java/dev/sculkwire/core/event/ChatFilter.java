@@ -38,6 +38,7 @@ public final class ChatFilter implements EventFilter {
 		if (!senderRegex.isBlank() && !kind.equals("player")) {
 			extractSender(senderRegex, ctx, me);
 		}
+		ctx.putPayload("msg.has_sender", Value.bool(!ctx.payload("msg.sender").asString().isBlank()));
 		if (Json.bool(p, "ignore_own", true) && ctx.payload("msg.is_own").asBool()) {
 			return false;
 		}

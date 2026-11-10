@@ -271,6 +271,26 @@ class RuleEngineTest {
 	}
 
 	@Test
+	void hasSenderSkipsServerMessages() {
+		Rule r = chatRule("any", null);
+		r.trigger.params.addProperty("sender_regex", "^\\[\\w+\\] (?<name>\\w+): (?<msg>.*)$");
+		Operand hasSender = new Operand();
+		hasSender.payload = "msg.has_sender";
+		r.conditions = Condition.compare(hasSender, "is_true");
+		TestWorld w = new TestWorld().add(r).join();
+		assertTrue(w.engine.rule(r.id).errors.isEmpty(), w.engine.rule(r.id).errors.toString());
+		w.engine.post("chat.message", Map.of("msg.text", Value.str("Set own game mode to Creative Mode"), "msg.sender", Value.str(""),
+				"msg.has_sender", Value.FALSE, "msg.kind", Value.enumOf("system"), "msg.is_own", Value.FALSE));
+		assertEquals(0, w.count());
+		w.engine.post("chat.message", chat("Alex", "hi", false));
+		assertEquals("Alex", w.lastTitle());
+		w.engine.post("chat.message", Map.of("msg.text", Value.str("[VIP] Notch: hello"), "msg.sender", Value.str(""),
+				"msg.has_sender", Value.FALSE, "msg.kind", Value.enumOf("system"), "msg.is_own", Value.FALSE));
+		assertEquals(2, w.count());
+		assertEquals("Notch", w.lastTitle());
+	}
+
+	@Test
 	void eventParamBindings() {
 		Rule r = new Rule();
 		r.name = "nether";

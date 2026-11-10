@@ -90,6 +90,7 @@ public final class SculkwireClient implements ClientModInitializer {
 			// unsigned ("disguised") chat has no profile; the chat type still carries the sender's name
 			String senderName = sender != null ? sender.name() : params != null ? Filters.stripFormatting(params.name().getString()) : "";
 			p.put("msg.sender", Value.str(senderName));
+			p.put("msg.has_sender", Value.bool(!senderName.isBlank()));
 			p.put("msg.sender_uuid", Value.str(sender != null ? sender.id().toString() : ""));
 			p.put("msg.kind", Value.enumOf("player"));
 			p.put("msg.is_own", Value.bool(sender != null && mc.player != null && sender.id().equals(mc.player.getUUID())));
@@ -107,6 +108,7 @@ public final class SculkwireClient implements ClientModInitializer {
 			p.put("msg.text", Value.str(text));
 			p.put("msg.full", Value.str(text));
 			p.put("msg.sender", Value.str(""));
+			p.put("msg.has_sender", Value.FALSE);
 			p.put("msg.sender_uuid", Value.str(""));
 			p.put("msg.kind", Value.enumOf("system"));
 			p.put("msg.is_own", Value.FALSE);

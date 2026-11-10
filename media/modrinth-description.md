@@ -24,7 +24,7 @@ game server.
   opens it.
 - **Skip while you play**: a built-in "actively playing" value holds notifications while you are at the
   keyboard.
-- **19 presets** and import/export to share setups. Exports never include your secrets.
+- **20 presets** and import/export to share setups. Exports never include your secrets.
 
 ## Getting started
 

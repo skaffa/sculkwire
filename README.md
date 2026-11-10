@@ -40,7 +40,7 @@ request, and only while an event uses a statistic (you can turn that off).
 - **Editor in game**: `/sw`, a key binding, or the Configure button in [Mod Menu](https://modrinth.com/mod/modmenu)
   opens it. It also has message previews and a delivery history. Everything is plain JSON in
   `config/sculkwire/`.
-- **19 presets** to start from, and import/export to share events (never with your secrets).
+- **20 presets** to start from, and import/export to share events (never with your secrets).
 
 ## Getting started
 

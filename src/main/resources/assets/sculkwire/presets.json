@@ -11,6 +11,17 @@
 		}
 	},
 	{
+		"id": "player-chat",
+		"name": "Player chat",
+		"description": "Any message a player sends, skipping server messages like game mode changes. On servers that send chat as system messages, set the sender regex.",
+		"rule": {
+			"name": "Player chat",
+			"trigger": {"kind": "event", "event": "chat.message", "params": {"mode": "any", "source": "both", "ignore_own": true}},
+			"conditions": {"type": "compare", "left": {"payload": "msg.has_sender"}, "op": "is_true"},
+			"message": {"title": "{msg.sender}", "body": "{msg.text}", "priority": "default", "tags": ["speech_balloon"], "click": ""}
+		}
+	},
+	{
 		"id": "friend-joined",
 		"name": "Friend joined",
 		"description": "A player from your friends list joins the server (add names to the 'friends' variable).",

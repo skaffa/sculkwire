@@ -46,6 +46,9 @@ Make a list variable `friends` (Variables tab, or `/sw var add friends Alex`), t
 - **Trigger:** `chat.message`, *Match:* `regex`, *Text or regex:* `(?i)\b(diamonds?|help)\b`
 - **Message:** `{msg.sender}: {msg.text}`
 
+To get only messages from players (not "Set own game mode", deaths or other server lines), add the
+condition `msg.has_sender` is true, or start from the *Player chat* preset.
+
 On servers that send player chat as system messages (many plugin servers), set *Source* to `both` and
 *Sender regex* to the server's chat format, e.g. `^\[\w+\] (?<name>\w+): (?<msg>.*)$`. Sculkwire then
 fills in `{msg.sender}` and `{msg.text}` from it, and *Only from* and *Ignore my own messages* work again.
