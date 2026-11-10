@@ -93,6 +93,7 @@ public final class ClientRuntime {
 		engine.setNotifierTemplates(dispatcher::templatesFor);
 		engine.setTagResolver(new Tags());
 		engine.load(config);
+		updateStatsWanted();
 		for (var cr : engine.rules()) {
 			if (!cr.errors.isEmpty()) {
 				pendingWarnings.add("Event '" + cr.rule.name + "' has problems and is inactive: " + String.join("; ", cr.errors));
@@ -128,9 +129,21 @@ public final class ClientRuntime {
 		return config;
 	}
 
+	private boolean statsWanted;
+
+	/** True when an event uses player.stat, so statistics are worth requesting. */
+	public boolean statsWanted() {
+		return statsWanted;
+	}
+
+	private void updateStatsWanted() {
+		statsWanted = dev.sculkwire.core.util.Json.COMPACT.toJson(config.rules).contains("player.stat");
+	}
+
 	/** Applies an edited config: recompiles rules, drops cached notifiers, saves to disk. */
 	public void apply(SculkwireConfig cfg) {
 		config = cfg.sanitize();
+		updateStatsWanted();
 		dispatcher.invalidate();
 		history.setMax(config.settings.historySize);
 		engine.load(config);
@@ -167,6 +180,7 @@ public final class ClientRuntime {
 		config = loaded.config();
 		dispatcher.invalidate();
 		engine.load(config);
+		updateStatsWanted();
 		return warnings;
 	}
 

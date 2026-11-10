@@ -11,6 +11,12 @@ public final class Settings {
 	public int historySize = 200;
 	public boolean privacyNoticeShown;
 	public int inspectorIntervalTicks = 10;
+	/**
+	 * Ask the server for your statistics (the same request the vanilla Statistics screen makes) while an
+	 * event uses player.stat. This is the only thing Sculkwire sends to the server.
+	 */
+	public boolean requestStats = true;
+	public int statsIntervalSeconds = 60;
 
 	public static final class QuietHours {
 		public boolean enabled;

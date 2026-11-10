@@ -91,6 +91,19 @@ fills in `{msg.sender}` and `{msg.text}` from it, and *Only from* and *Ignore my
 - **Trigger:** On a schedule, every `3600` seconds
 - **Message:** `You have played {session.playtime_seconds|duration}`
 
+## A friend gets an advancement
+
+- **Trigger:** `chat.advancement` (*A player's advancement is announced in chat*), *Only these players:*
+  `{friends}`, optionally *Only types:* `challenge`
+- **Message:** `{other.name} got {advancement.title}`
+
+## Count something: every 100 diamonds mined
+
+- **Trigger:** A value changes: `player.stat` with *Category* `mined` and *Statistic* `diamond_ore`
+- **Only if:** in the block editor, `player.stat` … is a multiple you care about, or simply send on every
+  change and use *Limits → Cooldown*.
+- Statistics refresh about once a minute.
+
 ## Webhook bodies
 
 The generic webhook can send any format. Inside the body, use `{notification.title}`,

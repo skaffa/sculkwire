@@ -5,6 +5,7 @@ import dev.sculkwire.client.ClientRuntime;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.network.protocol.game.ClientboundAwardStatsPacket;
 import net.minecraft.network.protocol.game.ClientboundDamageEventPacket;
 import net.minecraft.network.protocol.game.ClientboundEntityEventPacket;
 import net.minecraft.network.protocol.game.ClientboundPlayerCombatKillPacket;
@@ -65,6 +66,14 @@ public abstract class ClientPacketListenerMixin {
 		ClientRuntime rt = ClientRuntime.get();
 		if (rt != null) {
 			rt.trackers.onExperiencePacket(packet.getExperienceLevel());
+		}
+	}
+
+	@Inject(method = "handleAwardStats", at = @At("RETURN"))
+	private void sculkwire$stats(ClientboundAwardStatsPacket packet, CallbackInfo ci) {
+		ClientRuntime rt = ClientRuntime.get();
+		if (rt != null) {
+			rt.trackers.onStatsReceived();
 		}
 	}
 

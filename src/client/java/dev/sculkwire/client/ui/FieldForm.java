@@ -64,6 +64,29 @@ final class FieldForm {
 				w.setTooltip(Tooltip.create(Component.literal(f.hint())));
 			}
 			r.add(w, f.kind() == FieldKind.BOOL || f.kind() == FieldKind.ENUM ? Math.min(160, s.formWidth - s.labelWidth) : -1);
+			if ((f.kind() == FieldKind.ID || f.kind() == FieldKind.ID_LIST) && f.registryKind() != null) {
+				r.add(s.button(f.kind() == FieldKind.ID_LIST ? "+" : "…", "Choose from a list", () -> {
+					List<String> ids = dev.sculkwire.client.signals.GameRegistries.ids(f.registryKind(), Map.of());
+					List<PickerScreen.Item<String>> items = new ArrayList<>();
+					for (String id : ids) {
+						items.add(new PickerScreen.Item<>(id.startsWith("minecraft:") ? id.substring(10) : id, id, "", id));
+					}
+					net.minecraft.client.Minecraft.getInstance().gui.setScreen(new PickerScreen<>(s, "Choose " + f.label(), items, id -> {
+						if (f.kind() == FieldKind.ID_LIST) {
+							List<String> cur = new ArrayList<>(f.list(target));
+							if (!cur.contains(id)) {
+								cur.add(id);
+							}
+							JsonArray a = new JsonArray();
+							cur.forEach(a::add);
+							target.add(f.key(), a);
+						} else {
+							target.addProperty(f.key(), id);
+						}
+						onChange.run();
+					}));
+				}), 20);
+			}
 		}
 	}
 

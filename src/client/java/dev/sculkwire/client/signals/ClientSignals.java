@@ -168,6 +168,8 @@ public final class ClientSignals {
 		p(r, "player.inventory.free_slots", pl -> Value.num(freeSlots(pl)));
 		p(r, "player.inventory.full", pl -> Value.bool(freeSlots(pl) == 0));
 		pp(r, "player.inventory.count", (pl, prm) -> Value.num(countItems(pl, prm.getOrDefault("item", Value.NONE).asString())));
+		pp(r, "player.stat", (pl, prm) -> !tr.statsKnown() ? Value.NONE : GameRegistries.stat(pl,
+				prm.getOrDefault("category", Value.str("custom")).asString(), prm.getOrDefault("stat", Value.NONE).asString()));
 		r.source("player.looking_at.block", params -> {
 			HitResult hit = mc().hitResult;
 			if (mc().level == null || !(hit instanceof BlockHitResult bh) || hit.getType() != HitResult.Type.BLOCK) {

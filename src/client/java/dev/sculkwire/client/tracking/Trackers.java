@@ -17,6 +17,8 @@ import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.contents.TranslatableContents;
+import net.minecraft.network.protocol.game.ServerboundClientCommandPacket;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
@@ -109,6 +111,7 @@ public final class Trackers {
 		lastInputAt = now();
 		lastServerAddress = mc.getCurrentServer() != null && !mc.hasSingleplayerServer() ? mc.getCurrentServer().ip : "";
 		disconnectPosted = false;
+		statsReceived = false;
 		rt.engine.onJoin();
 		Map<String, Value> p = new LinkedHashMap<>();
 		p.put("server.address", Value.str(lastServerAddress));
@@ -165,6 +168,9 @@ public final class Trackers {
 		}
 		LocalPlayer player = mc.player;
 		ClientLevel level = mc.level;
+		if (player != null && level != null && inWorld && tick % 20 == 0) {
+			maybeRequestStats(mc, now);
+		}
 		if (player != null && level != null && inWorld) {
 			try {
 				diffs(mc, player, level, now);
@@ -418,8 +424,84 @@ public final class Trackers {
 		}
 	}
 
-	public void onAdvancement(String titleText, String id) {
-		rt.post("player.advancement", Map.of("advancement.title", Value.str(titleText), "advancement.id", Value.str(id)));
+	public void onAdvancement(String titleText, String id, String type) {
+		rt.post("player.advancement", Map.of("advancement.title", Value.str(titleText), "advancement.id", Value.str(id),
+				"advancement.type", Value.enumOf(type)));
+	}
+
+	/**
+	 * Advancement announcements ("Alex has made the advancement [Stone Age]") are read from the message's
+	 * translation key and arguments, so this works in any language and with styled chat.
+	 */
+	public void onSystemMessage(Component message) {
+		if (message == null || !(message.getContents() instanceof TranslatableContents tc)
+				|| !tc.getKey().startsWith("chat.type.advancement.")) {
+			return;
+		}
+		Object[] args = tc.getArgs();
+		if (args.length < 2) {
+			return;
+		}
+		String name = Filters.stripFormatting(argText(args[0])).trim();
+		String title = Filters.stripFormatting(argText(args[1])).trim();
+		if (title.startsWith("[") && title.endsWith("]")) {
+			title = title.substring(1, title.length() - 1);
+		}
+		String type = tc.getKey().substring("chat.type.advancement.".length());
+		LocalPlayer me = Minecraft.getInstance().player;
+		boolean own = me != null && me.getGameProfile().name().equalsIgnoreCase(name);
+		Map<String, Value> p = new LinkedHashMap<>();
+		p.put("other.name", Value.str(name));
+		p.put("advancement.title", Value.str(title));
+		p.put("advancement.type", Value.enumOf(type));
+		p.put("is_own", Value.bool(own));
+		rt.post("chat.advancement", p);
+	}
+
+	private static String argText(Object o) {
+		return o instanceof Component c ? c.getString() : String.valueOf(o);
+	}
+
+	// ---- statistics ----
+
+	private long lastStatsRequest;
+	private boolean statsReceived;
+
+	/** Statistics are only known after the server's first reply this session (until then they read 0). */
+	public boolean statsKnown() {
+		return statsReceived;
+	}
+
+	public void onStatsReceived() {
+		statsReceived = true;
+	}
+
+	/** Asks the server for statistics now and then while an event uses them (see Settings.requestStats). */
+	private void maybeRequestStats(Minecraft mc, long now) {
+		var s = rt.config().settings;
+		if (!s.requestStats || !rt.statsWanted()) {
+			return;
+		}
+		if (now - lastStatsRequest >= Math.max(10, s.statsIntervalSeconds) * 1000L) {
+			requestStats(mc, now);
+		}
+	}
+
+	/** One request soon (e.g. when the editor opens); at most every 5 seconds. */
+	public void requestStatsSoon() {
+		Minecraft mc = Minecraft.getInstance();
+		long now = now();
+		if (rt.config().settings.requestStats && now - lastStatsRequest > 5_000) {
+			requestStats(mc, now);
+		}
+	}
+
+	private void requestStats(Minecraft mc, long now) {
+		if (mc.getConnection() == null || mc.player == null) {
+			return;
+		}
+		lastStatsRequest = now;
+		mc.getConnection().send(new ServerboundClientCommandPacket(ServerboundClientCommandPacket.Action.REQUEST_STATS));
 	}
 
 	public void onSound(Identifier id, double x, double y, double z) {

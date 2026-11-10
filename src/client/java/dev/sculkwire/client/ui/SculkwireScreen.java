@@ -408,6 +408,11 @@ public final class SculkwireScreen extends FormScreen {
 			s.joinGraceSeconds = Math.max(0, parseNumber(v, 2));
 			rt.apply(cfg);
 		}, "2"), 60).live = () -> List.of(Component.literal("conditions already true when you join do not fire"));
+		row("Ask for statistics").add(toggle(() -> s.requestStats, v -> {
+			s.requestStats = v;
+			rt.apply(cfg);
+		}, "Yes", "No"), 60).live = () -> List.of(Component.literal(
+				"only while an event uses player.stat; the same request as the Statistics screen"));
 		row("History size").add(box(String.valueOf(s.historySize), 5, v -> {
 			s.historySize = (int) Math.max(10, Math.min(5000, parseNumber(v, 200)));
 			rt.apply(cfg);

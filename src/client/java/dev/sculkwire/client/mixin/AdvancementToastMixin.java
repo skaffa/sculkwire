@@ -20,6 +20,7 @@ public abstract class AdvancementToastMixin {
 			return;
 		}
 		String title = holder.value().display().map(d -> d.title().getString()).orElse(holder.id().toString());
-		rt.trackers.onAdvancement(title, holder.id().toString());
+		String type = holder.value().display().map(d -> d.type().getSerializedName()).orElse("task");
+		rt.trackers.onAdvancement(title, holder.id().toString(), type);
 	}
 }

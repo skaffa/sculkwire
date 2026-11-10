@@ -103,8 +103,21 @@ public final class BuiltinEvents {
 				List.of(items("items")), EventFilters.of(anyOf("items", "item"))));
 		r.define(new EventSpec("player.advancement", PLAYER, "You made an advancement",
 				List.of(PayloadVar.of("advancement.title", STRING, "Diamonds!", "Title"),
-						PayloadVar.of("advancement.id", STRING, "minecraft:story/mine_diamond", "Id")),
-				List.of(pattern("Title matches")), EventFilters.of(regex("pattern", "advancement.title"))));
+						PayloadVar.of("advancement.id", STRING, "minecraft:story/mine_diamond", "Id"),
+						PayloadVar.of("advancement.type", ENUM, "task", "task, goal or challenge")),
+				List.of(pattern("Title matches"), advancementTypes()),
+				EventFilters.of(regex("pattern", "advancement.title"), anyOf("types", "advancement.type"))));
+		EventFilter announced = EventFilters.of(anyOf("names", "other.name"), anyOf("types", "advancement.type"),
+				regex("pattern", "advancement.title"));
+		r.define(new EventSpec("chat.advancement", CHAT, "A player's advancement is announced in chat",
+				List.of(PayloadVar.of("other.name", STRING, "Alex", "Who made it"),
+						PayloadVar.of("advancement.title", STRING, "Diamonds!", "Advancement title"),
+						PayloadVar.of("advancement.type", ENUM, "task", "task, goal or challenge"),
+						PayloadVar.of("is_own", BOOL, false, "It was you")),
+				List.of(names(), advancementTypes(), pattern("Title matches"),
+						FieldSpec.of("include_own", FieldKind.BOOL, "Also my own").withDefault(false)),
+				(p, ctx) -> (dev.sculkwire.core.util.Json.bool(p, "include_own", false) || !ctx.payload("is_own").asBool())
+						&& announced.test(p, ctx)));
 		r.define(new EventSpec("player.item_picked_up", PLAYER, "You picked up an item",
 				List.of(PayloadVar.of("item", ID, "minecraft:diamond", "Item"), PayloadVar.of("count", NUMBER, 1, "Count")),
 				List.of(items("items"), FieldSpec.of("min_count", FieldKind.NUMBER, "At least")),
@@ -185,6 +198,11 @@ public final class BuiltinEvents {
 
 	private static FieldSpec pattern(String label) {
 		return FieldSpec.of("pattern", FieldKind.REGEX, label).withHint("Regex; empty = anything. Groups become {match.1}.");
+	}
+
+	private static FieldSpec advancementTypes() {
+		return FieldSpec.of("types", FieldKind.STRING_LIST, "Only types")
+				.withHint("task, goal, challenge (empty = any). Challenges are the purple ones.");
 	}
 
 	private static FieldSpec names() {

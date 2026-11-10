@@ -23,6 +23,9 @@ public final class BuiltinSignals {
 	public static final String SESSION = "session";
 	public static final String HUD = "hud";
 	public static final String CLIENT = "client";
+	/** Statistic categories (vanilla stat types); "custom" holds the general ones like jumps and play time. */
+	public static final String[] STAT_CATEGORIES = {
+			"custom", "mined", "crafted", "used", "broken", "picked_up", "dropped", "killed", "killed_by"};
 
 	private BuiltinSignals() {
 	}
@@ -88,6 +91,11 @@ public final class BuiltinSignals {
 		r.define(SignalSpec.builder("player.inventory.count", NUMBER, PLAYER, "How many of an item (or tag) you carry")
 				.param(ParamSpec.id("item", "item", "diamond", "Item or #tag")).build());
 		r.define(SignalSpec.builder("player.looking_at.block", ID, PLAYER, "Block under the crosshair").registry("block").build());
+		r.define(SignalSpec.builder("player.stat", NUMBER, PLAYER,
+				"A statistic from the Statistics screen (refreshed about once a minute)")
+				.param(ParamSpec.enumOf("category", "custom", "Category", STAT_CATEGORIES))
+				.param(ParamSpec.id("stat", "stat", "minecraft:play_time", "Statistic"))
+				.build());
 		r.define(SignalSpec.builder("player.looking_at.entity", ID, PLAYER, "Entity under the crosshair").registry("entity_type").build());
 
 		// ---- world ----

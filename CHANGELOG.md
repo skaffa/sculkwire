@@ -26,5 +26,11 @@ First release.
   its live reading.
 - In-game editor with message preview, delivery history, 19 presets and import/export.
 - `session.actively_playing` value, to hold notifications while you are at the keyboard.
+- Advancements: `player.advancement` now has the type (task, goal, challenge); new `chat.advancement`
+  event for any player's announced advancement, read from the message's translation key.
+- Statistics: `player.stat` with a category dropdown and a searchable statistic picker. Sculkwire asks the
+  server for statistics about once a minute while an event uses one (can be turned off).
+- Searchable pickers for ids (items, blocks, mobs, effects, sounds, biomes, dimensions) in event and value
+  settings.
 - `/sculkwire` (`/sw`) commands, and a Configure button in Mod Menu (optional).
 - Plugin API for other mods (experimental).

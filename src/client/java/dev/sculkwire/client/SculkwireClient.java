@@ -96,6 +96,9 @@ public final class SculkwireClient implements ClientModInitializer {
 			rt.post("chat.message", p);
 		});
 		ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
+			if (!overlay) {
+				rt.trackers.onSystemMessage(message);
+			}
 			if (overlay || !rt.listensTo("chat.message")) {
 				return;
 			}

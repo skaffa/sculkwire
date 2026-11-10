@@ -352,12 +352,15 @@ public final class RuleEditScreen extends FormScreen {
 		if (spec != null) {
 			text(Component.literal(spec.description()), GRAY, labelWidth);
 			for (ParamSpec p : spec.params()) {
-				row(p.label()).indent(12).add(box(ref.params().getOrDefault(p.name(), p.defaultValue().asString()), 100, v -> {
+				paramRow(spec, p, 12, () -> SignalRef.parse(t.signal).params(), (name, v) -> {
 					Map<String, String> params = new LinkedHashMap<>(SignalRef.parse(t.signal).params());
-					params.put(p.name(), v);
+					if (v == null || v.isBlank()) {
+						params.remove(name);
+					} else {
+						params.put(name, v);
+					}
 					t.signal = new SignalRef(ref.id(), params).toString();
-					changed();
-				}, p.defaultValue().asString()), -1);
+				});
 			}
 		}
 		row("From (optional)").add(box(jsonText(t.from), 200, v -> {
@@ -396,6 +399,55 @@ public final class RuleEditScreen extends FormScreen {
 			t.atRealTime = v.isBlank() ? null : v.trim();
 			changed();
 		}, "HH:MM"), 80);
+	}
+
+	/**
+	 * One signal parameter: options become a dropdown, ids get a searchable picker (the statistic list
+	 * follows the chosen category). Changing the category clears the statistic.
+	 */
+	private void paramRow(SignalSpec spec, ParamSpec p, int indent, java.util.function.Supplier<Map<String, String>> current,
+			java.util.function.BiConsumer<String, String> set) {
+		String cur = current.get().getOrDefault(p.name(), p.defaultValue().asString());
+		Row r = row(p.label()).indent(indent);
+		if (p.type() == ValueType.ENUM && !p.options().isEmpty()) {
+			List<String> opts = p.options();
+			r.add(cycle(opts, () -> {
+				String v = current.get().getOrDefault(p.name(), p.defaultValue().asString());
+				return opts.contains(v) ? v : opts.get(0);
+			}, v -> {
+				set.accept(p.name(), v);
+				if (p.name().equals("category") && spec.param("stat") != null) {
+					set.accept("stat", v.equals("custom") ? "minecraft:play_time" : "");
+				}
+				structural();
+			}, v -> v.replace('_', ' ')), Math.min(160, formWidth - labelWidth - indent));
+			return;
+		}
+		r.add(box(cur, 200, v -> {
+			set.accept(p.name(), v);
+			changed();
+		}, p.defaultValue().asString()), -1);
+		if (p.registryKind() != null) {
+			r.add(button("…", "Choose from a list", () -> pickId(p.registryKind(), current.get(), id -> {
+				set.accept(p.name(), id);
+				structural();
+			})), 20);
+		}
+	}
+
+	/** Opens a searchable list of ids of a registry kind (e.g. item, block, stat for a category). */
+	void pickId(String kind, Map<String, String> context, Consumer<String> onPick) {
+		List<String> ids = dev.sculkwire.client.signals.GameRegistries.ids(kind, context);
+		List<PickerScreen.Item<String>> items = new ArrayList<>();
+		for (String id : ids) {
+			String shortId = id.startsWith("minecraft:") ? id.substring(10) : id;
+			items.add(new PickerScreen.Item<>(shortId, id.equals(shortId) ? "" : id, "", id));
+		}
+		if (items.isEmpty()) {
+			ClientRuntime.warn("No list available here (join a world first).");
+			return;
+		}
+		minecraft.gui.setScreen(new PickerScreen<>(this, "Choose " + kind.replace('_', ' '), items, onPick));
 	}
 
 	// ---- condition tree ----
@@ -488,19 +540,24 @@ public final class RuleEditScreen extends FormScreen {
 			SignalSpec spec = rt.signals.spec(SignalRef.parse(c.left.signal).id());
 			if (spec != null) {
 				for (ParamSpec p : spec.params()) {
-					JsonElement cur = c.left.params == null ? null : c.left.params.get(p.name());
-					row("  " + p.label()).indent(indent + 14).add(box(cur == null ? p.defaultValue().asString() : cur.getAsString(), 100, v -> {
+					paramRow(spec, p, indent + 14, () -> {
+						Map<String, String> m = new LinkedHashMap<>();
+						if (c.left.params != null) {
+							c.left.params.forEach((k, v) -> m.put(k, v.isJsonPrimitive() ? v.getAsString() : v.toString()));
+						}
+						return m;
+					}, (name, v) -> {
 						if (c.left.params == null) {
 							c.left.params = new LinkedHashMap<>();
 						}
-						if (v.isBlank()) {
-							c.left.params.remove(p.name());
+						ParamSpec ps = spec.param(name);
+						if (v == null || v.isBlank()) {
+							c.left.params.remove(name);
 						} else {
-							c.left.params.put(p.name(), p.type() == ValueType.NUMBER && !Double.isNaN(parseNumber(v, Double.NaN))
+							c.left.params.put(name, ps != null && ps.type() == ValueType.NUMBER && !Double.isNaN(parseNumber(v, Double.NaN))
 									? new JsonPrimitive(parseNumber(v, 0)) : new JsonPrimitive(v));
 						}
-						changed();
-					}, p.defaultValue().asString()), -1);
+					});
 				}
 			}
 		}

@@ -251,6 +251,7 @@ public final class BlockEditorScreen extends Screen {
 		bottom = height - 40;
 		canvasX = palW + 6;
 		recompile();
+		rt.trackers.requestStatsSoon();
 		addRenderableWidget(btn("⚙ Settings", "Name, limits and where this event applies",
 				() -> minecraft.gui.setScreen(RuleEditScreen.popup(this, rule, RuleEditScreen.Section.SETTINGS, null)), width - 236, 20, 80));
 		addRenderableWidget(btn("Undo", "Ctrl+Z", this::doUndo, width - 152, 20, 46));
@@ -690,6 +691,11 @@ public final class BlockEditorScreen extends Screen {
 	private String compareText(Condition c) {
 		Op op = Op.parse(c.op);
 		String left = c.left.describe();
+		if ("player.stat".equals(c.left.signal) && c.left.params != null) {
+			String cat = c.left.params.containsKey("category") ? c.left.params.get("category").getAsString() : "custom";
+			String st = c.left.params.containsKey("stat") ? c.left.params.get("stat").getAsString() : "play_time";
+			left = "stat " + (cat.equals("custom") ? "" : cat.replace('_', ' ') + " ") + st.replace("minecraft:", "").replace('_', ' ');
+		}
 		String ops = op == null ? c.op : op.label();
 		if (op == null || op.arity() == 0) {
 			return left + " " + ops;

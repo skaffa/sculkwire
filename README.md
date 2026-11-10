@@ -7,7 +7,8 @@ Someone says your name, night falls, you are low on health while AFK, you get ki
 comes online: you decide what counts and where it goes.
 
 Sculkwire is a client-side Fabric mod for Minecraft **26.3**. It works on any server, including
-singleplayer, and sends nothing to the game server.
+singleplayer. The only thing it ever sends to the game server is the vanilla "show my statistics"
+request, and only while an event uses a statistic (you can turn that off).
 
 ## Features
 
@@ -20,6 +21,10 @@ singleplayer, and sends nothing to the game server.
   - Something happens: a chat message (contains, regex, mentions you, from your friends list), you die,
     take damage, use a totem, change dimension, level up, an item breaks, a title or boss bar appears,
     a player joins the server or comes into view, you are disconnected, a sound plays, and more.
+  - Advancements: your own (task, goal or challenge), or any player's when it is announced in chat. The
+    announcement is read from the message itself, so it works in every language.
+  - Statistics: any number from the Statistics screen (jumps, deaths, blocks mined, mobs killed, items
+    crafted, ...). Pick a category from a dropdown, then the statistic from a searchable list.
   - A condition becomes true: anything the game tracks (about 100 values) compared with a number, text
     or another value. Health, hunger, time of day, weather, dimension, biome, mobs nearby, ping, TPS,
     held item durability, free inventory slots, AFK time, scoreboard lines, ...
@@ -146,8 +151,9 @@ Everything is under `/sculkwire`, or `/sw` for short. All commands run on your c
 - On the public ntfy.sh, anyone who knows a topic can read it. Use a long random topic (the editor makes
   one) or an access token.
 - Imported events arrive disabled, and exports never include notifier settings or secrets.
-- Sculkwire only reads what your client already knows and sends no packets to the server. Some servers
-  have rules about client mods, so check yours.
+- Sculkwire only reads what your client already knows. For statistics it sends the same request the
+  Statistics screen sends, about once a minute and only while an event uses one (Settings → Ask for
+  statistics). Some servers have rules about client mods, so check yours.
 
 ## For mod developers
 
