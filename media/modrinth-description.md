@@ -2,8 +2,9 @@
 Someone says your name, night falls, you are low on health while AFK, you get kicked, a friend comes
 online: you decide what counts and where it goes.
 
-Sculkwire is **client-side**: it works on any server (and in singleplayer), and it sends nothing to the
-game server.
+Sculkwire is **client-side**: it works on any server (and in singleplayer). The only thing it ever sends
+to the game server is the vanilla "show my statistics" request, and only while an event uses a statistic
+(you can turn that off).
 
 ## What it does
 
