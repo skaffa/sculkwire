@@ -46,3 +46,4 @@ secrets.json
 
 # logs written by test runs
 logs/
+run-gallery/

@@ -54,6 +54,8 @@ public final class SculkwireClient implements ClientModInitializer {
 			}
 		} else if (dev.sculkwire.client.ui.DevScreenshots.mode().equals("blocks")) {
 			dev.sculkwire.client.ui.BlockEditorScreen.registerSelfTest();
+		} else if (dev.sculkwire.client.ui.DevScreenshots.mode().equals("gallery")) {
+			registerGalleryShots();
 		} else if (Boolean.parseBoolean(System.getProperty("sculkwire.devshots", "false"))) {
 			registerDevShots();
 		}
@@ -158,6 +160,30 @@ public final class SculkwireClient implements ClientModInitializer {
 				dev.sculkwire.core.model.NotifierConfig.of("", "Phone", "ntfy"), true));
 		dev.sculkwire.client.ui.DevScreenshots.add("notifier-webhook", () -> new dev.sculkwire.client.ui.NotifierEditScreen(null,
 				dev.sculkwire.core.util.Json.copy(ClientRuntime.get().config().notifiers.get(0), dev.sculkwire.core.model.NotifierConfig.class), false));
+	}
+
+	/** Screenshots for the Modrinth gallery (-Pdevshots=gallery, best with a demo config and a large window). */
+	private static void registerGalleryShots() {
+		dev.sculkwire.client.ui.DevScreenshots.add("gallery-1-blocks", () ->
+				new dev.sculkwire.client.ui.BlockEditorScreen(null, dev.sculkwire.client.ui.BlockEditorScreen.galleryRule(), false));
+		dev.sculkwire.client.ui.DevScreenshots.add("gallery-2-events", () -> dev.sculkwire.client.ui.SculkwireScreen.atTab(null, 0));
+		dev.sculkwire.client.ui.DevScreenshots.add("gallery-3-stat", () -> {
+			var r = new dev.sculkwire.core.model.Rule();
+			r.name = "Diamonds mined";
+			var left = dev.sculkwire.core.model.Operand.signal("player.stat", "category", "mined");
+			left.params.put("stat", new com.google.gson.JsonPrimitive("minecraft:diamond_ore"));
+			r.trigger = dev.sculkwire.core.model.Trigger.change("player.stat");
+			var c = dev.sculkwire.core.model.Condition.compare(left, "gte", dev.sculkwire.core.model.Operand.value(100));
+			r.conditions = c;
+			r.message = dev.sculkwire.core.model.MessageTemplate.of("{player.stat(category=mined, stat=minecraft:diamond_ore)} diamonds mined", "");
+			r.targets.add(dev.sculkwire.core.model.Target.of("phone"));
+			return dev.sculkwire.client.ui.RuleEditScreen.popup(null, r, dev.sculkwire.client.ui.RuleEditScreen.Section.COMPARE, c);
+		});
+		dev.sculkwire.client.ui.DevScreenshots.add("gallery-4-picker", () -> {
+			var p = dev.sculkwire.client.ui.RuleEditScreen.idPicker(null, "stat", java.util.Map.of("category", "mined"), id -> {
+			});
+			return p == null ? null : p.withFilter("ore");
+		});
 	}
 
 	private static void open(Minecraft mc) {

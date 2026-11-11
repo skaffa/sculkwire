@@ -191,6 +191,27 @@ public final class BlockEditorScreen extends Screen {
 		return r;
 	}
 
+	/** The script shown in the Modrinth gallery: nested ifs, several notifiers, a send at the end. */
+	public static Rule galleryRule() {
+		Rule r = new Rule();
+		r.name = "Danger while away";
+		r.trigger = Trigger.event("player.damaged");
+		Condition low = Condition.compare(Operand.signal("player.health"), "lt", Operand.value(6));
+		Condition away = Condition.group("none", Condition.compare(Operand.signal("session.actively_playing"), "is_true"));
+		Branch lowAway = Branch.typed(Branch.IF, Condition.group("all", low, away),
+				Send.of(MessageTemplate.of("Low health while away!", "{player.health|hearts} hearts at {player.block_pos}"), "phone", "discord"));
+		lowAway.blocks = new ArrayList<>(List.of(
+				Branch.typed(Branch.IF, Condition.compare(Operand.signal("nearby.hostiles", "radius", 8), "gte", Operand.value(3)),
+						Send.of(MessageTemplate.of("Mobs around you", "{nearby.hostiles(radius=8)} hostiles within 8 blocks"), "phone"))));
+		r.branches = new ArrayList<>(List.of(
+				lowAway,
+				Branch.typed(Branch.ELSE_IF, Condition.compare(Operand.signal("player.on_fire"), "is_true"),
+						Send.of(MessageTemplate.of("You are burning", "{damage.source}"), "phone")),
+				Branch.typed(Branch.ELSE, null, Send.of(MessageTemplate.of("Took {damage.amount} damage", ""), "toast")),
+				Branch.typed(Branch.DO, null, Send.of(MessageTemplate.of("Damage log", "{damage.amount} from {damage.source}"), "log"))));
+		return r;
+	}
+
 	/** Puts the rule in block form: legacy message + targets become one send block; block types are made explicit. */
 	private void normalize() {
 		if (rule.trigger == null) {

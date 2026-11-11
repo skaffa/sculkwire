@@ -437,17 +437,23 @@ public final class RuleEditScreen extends FormScreen {
 
 	/** Opens a searchable list of ids of a registry kind (e.g. item, block, stat for a category). */
 	void pickId(String kind, Map<String, String> context, Consumer<String> onPick) {
+		PickerScreen<String> picker = idPicker(this, kind, context, onPick);
+		if (picker == null) {
+			ClientRuntime.warn("No list available here (join a world first).");
+			return;
+		}
+		minecraft.gui.setScreen(picker);
+	}
+
+	/** A searchable list of the ids of a registry kind, or null when there are none (not in a world). */
+	public static PickerScreen<String> idPicker(Screen parent, String kind, Map<String, String> context, Consumer<String> onPick) {
 		List<String> ids = dev.sculkwire.client.signals.GameRegistries.ids(kind, context);
 		List<PickerScreen.Item<String>> items = new ArrayList<>();
 		for (String id : ids) {
 			String shortId = id.startsWith("minecraft:") ? id.substring(10) : id;
 			items.add(new PickerScreen.Item<>(shortId, id.equals(shortId) ? "" : id, "", id));
 		}
-		if (items.isEmpty()) {
-			ClientRuntime.warn("No list available here (join a world first).");
-			return;
-		}
-		minecraft.gui.setScreen(new PickerScreen<>(this, "Choose " + kind.replace('_', ' '), items, onPick));
+		return items.isEmpty() ? null : new PickerScreen<>(parent, "Choose " + kind.replace('_', ' '), items, onPick);
 	}
 
 	// ---- condition tree ----

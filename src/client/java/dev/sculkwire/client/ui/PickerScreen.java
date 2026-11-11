@@ -24,6 +24,12 @@ public final class PickerScreen<T> extends FormScreen {
 		this.onPick = onPick;
 	}
 
+	/** Starts with this search text (for screenshots). */
+	public PickerScreen<T> withFilter(String text) {
+		this.filter = text == null ? "" : text;
+		return this;
+	}
+
 	@Override
 	protected int headerHeight() {
 		return 46;

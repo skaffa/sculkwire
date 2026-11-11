@@ -44,7 +44,18 @@ public final class DevScreenshots {
 
 	public static void add(String name, Supplier<Screen> screen) {
 		NAMES.add(name);
-		STEPS.add(() -> Minecraft.getInstance().gui.setScreen(screen.get()));
+		STEPS.add(() -> {
+			Minecraft mc = Minecraft.getInstance();
+			mc.gui.toastManager().clear();
+			try {
+				// park the cursor in the corner so no tooltip shows in the screenshot
+				org.lwjgl.sdl.SDLMouse.SDL_WarpMouseInWindow(mc.getWindow().handle(), 1f, 1f);
+				mc.mouseHandler.resyncMousePosition();
+			} catch (RuntimeException | LinkageError e) {
+				Sculkwire.LOG.debug("could not move the cursor", e);
+			}
+			mc.gui.setScreen(screen.get());
+		});
 	}
 
 	public static void addAction(String name, Runnable action) {
