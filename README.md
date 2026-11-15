@@ -1,4 +1,4 @@
-<p align="center"><img src="media/icon.png" width="128" alt="Sculkwire icon"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/skaffa/sculkwire/c8dd2bedaa4eb406a7d0d58e7e733a18a2b11f6e/media/icon.png" width="128" alt="Sculkwire icon"></p>
 
 # Sculkwire
 
@@ -174,9 +174,6 @@ The jar ends up in `build/libs/`.
 
 - **Tests:** the core (engine, templates, notifiers, config) does not use Minecraft classes, so
   `./gradlew test` runs plain JUnit tests, including against a loopback HTTP server.
-- **Local test server:** `./gradlew runServer --args=nogui` with RCON enabled, plus
-  `tools/capture_server.py` as a stand-in for ntfy, Discord and webhooks, and `tools/rcon.py` to script
-  game situations.
 - **UI screenshots:** `./gradlew runClient -Pdevshots` opens each editor screen after joining and saves a
   screenshot of it; `-Pdevshots=modmenu` does the same for the Mod Menu entry at the title screen.
 
